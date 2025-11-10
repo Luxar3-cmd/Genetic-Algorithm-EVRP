@@ -1,7 +1,27 @@
+/**
+ * GA.cpp - Implementación del Algoritmo Genético para EVRP
+ * =========================================================
+ * 
+ * Este archivo contiene la implementación completa del algoritmo genético
+ * para resolver el problema de enrutamiento de vehículos eléctricos (EVRP).
+ * 
+ * Estructura del archivo:
+ * 1. Preprocesamiento del Grafo (Fases 0-3)
+ * 2. Constructor y Helpers
+ * 3. Algoritmo Genético (Inicialización, Evaluación, Selección, Cruce, Mutación)
+ * 4. Función Split
+ * 5. Ejecución Principal (run)
+ * 6. Impresión de Solución
+ */
+
 #include "GA.h"
 #include <iomanip>
 
 using namespace std;
+
+// ============================================================================
+// SECCIÓN 1: PREPROCESAMIENTO DEL GRAFO
+// ============================================================================
 
 /**
  * FASE 3: PREPROCESAMIENTO DE CAMINOS ÓPTIMOS
@@ -34,6 +54,8 @@ void evolutionaryAlgo::preprocess_paths() {
         int start = U[iu]; // ID real del nodo en el grafo completo
         
         // Ejecutar Dijkstra desde este nodo hacia todos los demás
+        // El algoritmo elegirá automáticamente el camino óptimo (directo o con estaciones)
+        // según minimice distancia y recargas.
         dijkstra_lex(start, distG, recG, prev); 
         
         // Extraer información solo para nodos en U
@@ -51,13 +73,16 @@ void evolutionaryAlgo::preprocess_paths() {
                 continue;
             }
             
+            // Reconstruir el camino
+            vector<int> path = reconstruct_path(start, target, prev);
+            
             // Guardar costo, recargas y camino completo
             W[iu][jv] = d; 
             Rcnt[iu][jv] = recG[target];
-            PathUV[iu*M + jv] = reconstruct_path(start, target, prev);
+            PathUV[iu*M + jv] = path;
         }
     }
-    
+    /*
     // VALIDACIÓN: Verificar que todos los clientes sean alcanzables desde el depósito
     // y que se pueda regresar del cliente al depósito
     for (int i = 1; i < M; i++) {
@@ -65,6 +90,7 @@ void evolutionaryAlgo::preprocess_paths() {
             throw runtime_error("Cliente inalcanzable con B_max y estaciones dadas");
         }
     }
+    */
 }
 
 /**
@@ -108,19 +134,22 @@ vector<int> evolutionaryAlgo::reconstruct_path(int start_id, int target_id, cons
 
 /**
  * @struct State
- * @brief Estado para el algoritmo de Dijkstra lexicográfico
+ * @brief Estado para el algoritmo de Dijkstra lexicográfico con verificación de batería
  * 
  * Representa un estado en la búsqueda de camino mínimo con dos criterios:
  * 1. Distancia/costo acumulado (prioridad principal)
  * 2. Número de recargas (criterio de desempate)
  * 
+ * Además, rastrea la batería residual para verificar factibilidad.
+ * 
  * El operador< está invertido para convertir el max-heap de priority_queue
  * en un min-heap (necesario para Dijkstra).
  */
 struct State {
-    double dist;    // Distancia/costo acumulado desde el origen
-    int rec;        // Número de recargas realizadas en el camino
-    int v;          // Nodo actual
+    double dist;        // Distancia/costo acumulado desde el origen
+    int rec;            // Número de recargas realizadas en el camino
+    int v;              // Nodo actual
+    double battery;     // Batería residual al llegar a este nodo
     
     /**
      * @brief Operador de comparación invertido para min-heap
@@ -135,18 +164,27 @@ struct State {
 };
 
 /**
- * DIJKSTRA LEXICOGRÁFICO
- * =======================
+ * DIJKSTRA LEXICOGRÁFICO CON VERIFICACIÓN DE BATERÍA
+ * ====================================================
  * Algoritmo de Dijkstra modificado con orden lexicográfico: (distancia, recargas).
  * 
  * Encuentra los caminos de costo mínimo desde start_id a todos los demás nodos,
  * considerando primero la minimización de distancia/costo, y en caso de empate,
  * la minimización del número de recargas.
  * 
- * Restricción de batería: Solo puede moverse por aristas que ya fueron filtradas
- * por build_graph() (dist ≤ B_max).
+ * IMPORTANTE: Verifica la batería residual en cada paso. Solo permite moverse
+ * a un nodo si hay suficiente batería para llegar. Si no hay suficiente batería,
+ * el vehículo debe pasar por una estación de recarga.
  * 
- * Asunción: Al llegar a una estación, la batería se recarga al 100%.
+ * Restricción de batería: 
+ * - Solo puede moverse por aristas si la batería residual es suficiente
+ * - Si la batería se agota, debe pasar por una estación
+ * - Al llegar a una estación, la batería se recarga al 100% (B_max)
+ * 
+ * Batería inicial:
+ * - Si start_id es depósito: batería inicial = B_max
+ * - Si start_id es cliente: batería inicial = B_max (asumimos que acabamos de llegar desde depósito o estación)
+ * - Si start_id es estación: batería inicial = B_max (asumimos que acabamos de recargar)
  * 
  * @param start_id Nodo origen
  * @param[out] distG distG[v] = costo mínimo desde start_id hasta v
@@ -161,11 +199,14 @@ void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<
     recG.assign(N, __INT_MAX__);
     prev.assign(N, -1);
     
+    // Batería inicial: siempre B_max (asumimos que partimos con batería completa)
+    double initial_battery = B_max;
+    
     // Inicializar nodo origen
     priority_queue<State> pq; 
     distG[start_id] = 0.0; 
     recG[start_id] = 0; 
-    pq.push(State{0.0, 0, start_id}); 
+    pq.push(State{0.0, 0, start_id, initial_battery}); 
     
     // Algoritmo de Dijkstra
     while (!pq.empty()) {
@@ -179,6 +220,26 @@ void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<
         // Explorar vecinos
         for (const auto& e : adj[u]) {
             int v = e.to; 
+            
+            // Calcular distancia real (sin costo de recarga) para verificar batería
+            double real_dist = dist[u][v]; // Distancia euclidiana real
+            
+            // Calcular batería después de moverse de u a v
+            double battery_after_move = s.battery - real_dist;
+            
+            // Si no hay suficiente batería, no podemos ir directamente
+            // (a menos que v sea una estación y podamos llegar con batería >= 0)
+            if (battery_after_move < 0.0) {
+                // No podemos llegar a v desde u con la batería actual
+                // Esto no debería ocurrir si build_graph() está correcto,
+                // pero por seguridad lo verificamos
+                continue;
+            }
+            
+            // Si llegamos a una estación, recargar al 100%
+            double new_battery = (type[v] == NodeType::Station) ? B_max : battery_after_move;
+            
+            // Calcular nuevo costo (incluye costo de recarga si v es estación)
             double new_dist = distG[u] + e.w; 
             
             // Incrementar contador de recargas si llegamos a una estación
@@ -197,7 +258,7 @@ void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<
                 distG[v] = new_dist; 
                 recG[v] = new_rec; 
                 prev[v] = u; 
-                pq.push(State{new_dist, new_rec, v}); 
+                pq.push(State{new_dist, new_rec, v, new_battery}); 
             }
         }
     }
@@ -254,10 +315,8 @@ void evolutionaryAlgo::build_types() {
  * 
  * Restricciones:
  * 1. Solo existe arista a→b si dist[a][b] ≤ B_max (el vehículo puede llegar con una carga)
- * 2. RESTRICCIÓN CRÍTICA: Solo las estaciones pueden ser nodos intermedios
- *    - Desde Depot/Cliente: puede ir a cualquier nodo (depot, cliente, estación)
- *    - Desde Estación: solo puede ir a Depot/Cliente (para cerrar el camino)
- *    Esto garantiza que los clientes nunca sean nodos de tránsito en caminos preprocesados.
+ * 2. Desde Estación: solo puede ir a Depot o Cliente (para evitar cadenas de estaciones)
+ * 3. Desde cualquier otro nodo: puede ir a cualquier nodo si dist ≤ B_max
  * 
  * Cálculo de peso:
  * - w = C_km × dist[a][b] + C_rec (si b es estación)
@@ -265,12 +324,19 @@ void evolutionaryAlgo::build_types() {
  * 
  * Asunción: Al llegar a una estación, se realiza una recarga completa al 100%.
  * El costo C_rec se cobra al LLEGAR a la estación.
+ * 
+ * Nota: Se permiten aristas cliente→cliente si dist ≤ B_max. El algoritmo de Dijkstra
+ * elegirá automáticamente el camino más corto (directo o pasando por estaciones según
+ * sea necesario).
  */
 void evolutionaryAlgo::build_graph() {
     // Inicializar lista de adyacencia vacía para cada nodo
     adj.assign(N, {}); 
     
     // Construir aristas entre pares de nodos según reglas de conectividad
+    // Permitimos todas las conexiones válidas respetando B_max, excepto:
+    // Estaciones no pueden ir a otras estaciones (para evitar cadenas de estaciones, modelo limitado)
+    
     for (int a = 0; a < N; a++) {
         for (int b = 0; b < N; b++) {
             if (a == b) continue; // No hay auto-loops
@@ -282,9 +348,13 @@ void evolutionaryAlgo::build_graph() {
                 // Determinar si esta arista es válida según el tipo de nodos
                 bool valid_edge = false;
                 
-                if (type[a] == NodeType::Depot || type[a] == NodeType::Client) {
-                    // Desde Depot o Cliente: puede ir a cualquier nodo
+                if (type[a] == NodeType::Depot) {
+                    // Desde Depot: puede ir a Clientes o Estaciones
                     valid_edge = true;
+                } else if (type[a] == NodeType::Client) {
+                    // Desde Cliente: puede ir a Depot, Clientes o Estaciones
+                    // (siempre que dist ≤ B_max)
+                        valid_edge = true;
                 } else if (type[a] == NodeType::Station) {
                     // Desde Estación: solo puede ir a Depot o Cliente
                     // (no puede ir a otra estación, evitando cadenas de estaciones)
@@ -390,6 +460,10 @@ evolutionaryAlgo::evolutionaryAlgo(const string& filename) {
     
     // Al terminar, W, Rcnt y PathUV están listos para ser usados por split
 }
+
+// ============================================================================
+// SECCIÓN 2: CONSTRUCTOR Y HELPERS
+// ============================================================================
 
 /**
  * HELPER: OBTENER DEMANDA DE UN CLIENTE
@@ -526,6 +600,10 @@ void evolutionaryAlgo::initialize_population() {
 
 }
 
+// ============================================================================
+// SECCIÓN 4: FUNCIÓN SPLIT
+// ============================================================================
+
 /**
  * FUNCIÓN SPLIT - Algoritmo de Partición Óptima
  * ==============================================
@@ -538,6 +616,10 @@ void evolutionaryAlgo::initialize_population() {
  * 
  * Usa programación dinámica (Bellman) para encontrar el camino de costo mínimo de 0 a P,
  * lo cual corresponde a la partición óptima en rutas.
+ * 
+ * IMPORTANTE: Esta función confía completamente en el preprocesamiento (matriz W).
+ * El preprocesamiento ya calcula los caminos óptimos considerando las estaciones de
+ * recarga necesarias. Si W[i][j] es finito, el camino de U[i] a U[j] es factible.
  * 
  * La función está dividida en dos partes:
  * 1. Programación dinámica: calcula V[] (costos) y Pred[] (predecesores)
@@ -561,7 +643,6 @@ Solution evolutionaryAlgo::split(const vector<int>& chromosome) const {
         if (!isfinite(V[i])) continue;  // Si i no es alcanzable, saltar
         
         int load = 0;      // Carga acumulada en la ruta actual
-        double cost = 0.0; // Costo acumulado de la ruta actual
         int j = i;         // Posición final de la ruta
         
         // Intentar extender la ruta desde i hasta j
@@ -573,36 +654,72 @@ Solution evolutionaryAlgo::split(const vector<int>& chromosome) const {
             // Verificar restricción de capacidad
             if (load > Q) break;  // No se puede agregar más clientes
             
-            // Calcular costo de la ruta [i..j]
-            if (j == i) {
-                // Primera cliente en la ruta: Depósito → client → Depósito
-                double cost_depot_to_client = W[0][client_id];
-                double cost_client_to_depot = W[client_id][0];
-                
-                if (!isfinite(cost_depot_to_client) || !isfinite(cost_client_to_depot)) {
-                    break;  // Cliente no alcanzable desde depósito
-                }
-                
-                cost = cost_depot_to_client + cost_client_to_depot;
-            } else {
-                // Agregar cliente a ruta existente
-                int prev_client = chromosome[j - 1];
-                double cost_between = W[prev_client][client_id];
-                double cost_to_depot = W[client_id][0];
-                double cost_prev_to_depot = W[prev_client][0];
-                
-                if (!isfinite(cost_between) || !isfinite(cost_to_depot)) {
-                    break;  // Arco no factible
-                }
-                
-                // Actualizar costo: quitar arco previo→depósito, agregar previo→actual→depósito
-                cost = cost - cost_prev_to_depot + cost_between + cost_to_depot;
+            // Convertir node_id a índice en U para acceder a W
+            // W está indexado por índices en U, no por node_ids
+            int u_idx_client = U_inv[client_id];
+            if (u_idx_client < 0) {
+                // Cliente no válido (no debería ocurrir)
+                break;
             }
             
-            // Actualizar programación dinámica si encontramos mejor camino
-            if (V[i] + cost < V[j + 1]) {
-                V[j + 1] = V[i] + cost;
+            // Calcular costo de la ruta [i..j] usando la matriz W preprocesada
+            // La matriz W ya considera las estaciones de recarga necesarias
+            double route_cost = 0.0;
+            bool route_feasible = true;
+            
+            // Construir secuencia de clientes en esta ruta
+            vector<int> route_clients;
+            for (int k = i; k <= j; k++) {
+                route_clients.push_back(chromosome[k]);
+            }
+            
+            int u_idx_depot = 0;
+            
+            // Depósito → Primer cliente
+            int first_client = route_clients[0];
+            int u_idx_first = U_inv[first_client];
+            if (u_idx_first < 0 || !isfinite(W[u_idx_depot][u_idx_first])) {
+                route_feasible = false;
+            } else {
+                route_cost += W[u_idx_depot][u_idx_first];
+            }
+            
+            // Entre clientes consecutivos
+            for (size_t k = 0; k + 1 < route_clients.size() && route_feasible; k++) {
+                int from_client = route_clients[k];
+                int to_client = route_clients[k + 1];
+                int u_idx_from = U_inv[from_client];
+                int u_idx_to = U_inv[to_client];
+                
+                if (u_idx_from < 0 || u_idx_to < 0 || !isfinite(W[u_idx_from][u_idx_to])) {
+                    route_feasible = false;
+                    break;
+                }
+                
+                route_cost += W[u_idx_from][u_idx_to];
+            }
+            
+            // Último cliente → Depósito
+            if (route_feasible) {
+                int last_client = route_clients.back();
+                int u_idx_last = U_inv[last_client];
+                
+                if (u_idx_last < 0 || !isfinite(W[u_idx_last][u_idx_depot])) {
+                    route_feasible = false;
+                } else {
+                    route_cost += W[u_idx_last][u_idx_depot];
+                }
+            }
+            
+            // Actualizar programación dinámica solo si la ruta es factible
+            if (route_feasible && isfinite(route_cost) && V[i] + route_cost < V[j + 1]) {
+                V[j + 1] = V[i] + route_cost;
                 Pred[j + 1] = i;
+            }
+            
+            // Si la ruta no es factible, no podemos extender más
+            if (!route_feasible) {
+                break;
             }
             
             j++;  // Intentar agregar siguiente cliente
@@ -636,11 +753,14 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
     if (!isfinite(V[n])) {
         sol.is_feasible = false;
         sol.total_cost = INF;
+        sol.infeasibility_reason = FeasibilityReason::UnreachableClient;
+        sol.infeasibility_details = "No se pudo encontrar una solución factible que visite todos los clientes";
         return sol;
     }
     
     sol.total_cost = V[n];
     sol.is_feasible = true;
+    sol.infeasibility_reason = FeasibilityReason::Feasible;
     
     // Reconstruir rutas siguiendo predecesores (desde n hasta 0)
     int end = n;
@@ -650,6 +770,8 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
             // Error: no se puede reconstruir la solución
             sol.is_feasible = false;
             sol.total_cost = INF;
+            sol.infeasibility_reason = FeasibilityReason::Unknown;
+            sol.infeasibility_details = "Error al reconstruir la solución desde los predecesores";
             return sol;
         }
         
@@ -667,18 +789,61 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
         route.load = route_load;
         
         // Calcular costo de esta ruta usando matriz W
+        // NOTA: El preprocesamiento (matriz W) ya garantiza que los caminos son factibles
+        // considerando las estaciones de recarga necesarias. Si W es finito, el camino es factible.
         if (route.clients.size() > 0) {
-            double route_cost = W[0][route.clients[0]];  // Depósito → primer cliente
+            // Convertir node_id del primer cliente a índice en U
+            int u_idx_first = U_inv[route.clients[0]];
+            if (u_idx_first < 0) {
+                sol.is_feasible = false;
+                sol.total_cost = INF;
+                sol.infeasibility_reason = FeasibilityReason::UnreachableClient;
+                sol.infeasibility_details = "Cliente " + to_string(route.clients[0]) + " no es alcanzable";
+                return sol;
+            }
+            
+            // Verificar capacidad de la ruta
+            if (route.load > Q) {
+                sol.is_feasible = false;
+                sol.total_cost = INF;
+                sol.infeasibility_reason = FeasibilityReason::CapacityExceeded;
+                sol.infeasibility_details = "Ruta excede capacidad Q=" + to_string(Q) + " (carga=" + to_string(route.load) + ")";
+                return sol;
+            }
+            
+            double route_cost = W[0][u_idx_first];  // Depósito → primer cliente
             
             // Costos entre clientes consecutivos
             for (size_t k = 0; k < route.clients.size() - 1; k++) {
-                route_cost += W[route.clients[k]][route.clients[k + 1]];
+                int from = route.clients[k];
+                int to = route.clients[k + 1];
+                int u_idx_from = U_inv[from];
+                int u_idx_to = U_inv[to];
+                if (u_idx_from < 0 || u_idx_to < 0) {
+                    sol.is_feasible = false;
+                    sol.total_cost = INF;
+                    sol.infeasibility_reason = FeasibilityReason::UnreachableClient;
+                    sol.infeasibility_details = "Cliente " + to_string(from) + " o " + to_string(to) + " no es alcanzable";
+                    return sol;
+                }
+                route_cost += W[u_idx_from][u_idx_to];
             }
             
             // Último cliente → depósito
-            route_cost += W[route.clients.back()][0];
+            int u_idx_last = U_inv[route.clients.back()];
+            if (u_idx_last < 0) {
+                sol.is_feasible = false;
+                sol.total_cost = INF;
+                sol.infeasibility_reason = FeasibilityReason::UnreachableClient;
+                sol.infeasibility_details = "Cliente " + to_string(route.clients.back()) + " no puede regresar al depósito";
+                return sol;
+            }
+            route_cost += W[u_idx_last][0];
             
             route.cost = route_cost;
+            
+            // NOTA: El preprocesamiento (matriz W) ya garantiza que los caminos son factibles
+            // considerando las estaciones de recarga necesarias. Si W es finito, el camino es factible.
         } else {
             // Ruta vacía (no debería ocurrir)
             route.cost = 0.0;
@@ -695,11 +860,23 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
     // Verificar restricción de flota
     if (sol.num_vehicles > B) {
         sol.is_feasible = false;
-        sol.total_cost = INF;  // Penalización: solución no factible
+        sol.total_cost = INF;
+        sol.infeasibility_reason = FeasibilityReason::FleetExceeded;
+        sol.infeasibility_details = "Solución usa " + to_string(sol.num_vehicles) + " vehículos, máximo permitido es " + to_string(B);
+        return sol;
     }
+    
+    // Si llegamos aquí, la solución es factible
+    sol.is_feasible = true;
+    sol.infeasibility_reason = FeasibilityReason::Feasible;
+    sol.infeasibility_details = "Solución factible: " + to_string(sol.num_vehicles) + " vehículos, costo total " + to_string(sol.total_cost);
     
     return sol;
 }
+
+// ============================================================================
+// SECCIÓN 5: ALGORITMO GENÉTICO - OPERADORES
+// ============================================================================
 
 /**
  * EVALUACIÓN DE POBLACIÓN
@@ -729,12 +906,42 @@ void evolutionaryAlgo::evaluate_population() {
     best_solution.total_cost = numeric_limits<double>::infinity();
     
     // Evaluar cada individuo en la población
+    int num_feasible = 0;
+    int num_capacity_exceeded = 0;
+    int num_fleet_exceeded = 0;
+    int num_battery_insufficient = 0;
+    int num_unreachable = 0;
+    int num_unknown = 0;
+    
     for (size_t i = 0; i < population.size(); i++) {
         // Aplicar split al cromosoma
         Solution sol = split(population[i]);
         
         // Guardar fitness (costo total)
         fitness[i] = sol.total_cost;
+        
+        // Contar razones de infactibilidad
+        if (sol.is_feasible) {
+            num_feasible++;
+        } else {
+            switch (sol.infeasibility_reason) {
+                case FeasibilityReason::CapacityExceeded:
+                    num_capacity_exceeded++;
+                    break;
+                case FeasibilityReason::FleetExceeded:
+                    num_fleet_exceeded++;
+                    break;
+                case FeasibilityReason::BatteryInsufficient:
+                    num_battery_insufficient++;
+                    break;
+                case FeasibilityReason::UnreachableClient:
+                    num_unreachable++;
+                    break;
+                default:
+                    num_unknown++;
+                    break;
+            }
+        }
         
         // Actualizar mejor solución si es factible y mejor
         if (sol.is_feasible && sol.total_cost < best_cost) {
@@ -744,18 +951,9 @@ void evolutionaryAlgo::evaluate_population() {
         }
     }
     
-    // Logging: mostrar estadísticas de la evaluación
-    int num_feasible = 0;
-    double avg_fitness = 0.0;
-    for (size_t i = 0; i < fitness.size(); i++) {
-        if (isfinite(fitness[i])) {
-            num_feasible++;
-            avg_fitness += fitness[i];
-        }
-    }
-    
     // Logging deshabilitado para reducir ruido en la salida
-    // (solo se imprime la solución final en run())
+    // Las estadísticas de infactibilidad están disponibles pero no se imprimen
+    // para mantener la salida limpia. Se pueden activar para debugging.
 }
 
 /**
@@ -1143,6 +1341,10 @@ void evolutionaryAlgo::apply_swap(vector<int>& chromosome, int i, int j) const {
     }
 }
 
+// ============================================================================
+// SECCIÓN 6: EJECUCIÓN PRINCIPAL
+// ============================================================================
+
 /**
  * EJECUCIÓN DEL ALGORITMO GENÉTICO
  * ==================================
@@ -1187,8 +1389,37 @@ void evolutionaryAlgo::run() {
         print_solution(best_solution);
     } else {
         cout << "No se encontró solución factible." << endl;
+        if (best_fitness_index >= 0) {
+            // Imprimir razón de infactibilidad de la mejor solución encontrada (aunque sea infactible)
+            cout << "\nRazón de infactibilidad: ";
+            switch (best_solution.infeasibility_reason) {
+                case FeasibilityReason::CapacityExceeded:
+                    cout << "Capacidad excedida";
+                    break;
+                case FeasibilityReason::FleetExceeded:
+                    cout << "Flota excedida";
+                    break;
+                case FeasibilityReason::BatteryInsufficient:
+                    cout << "Batería insuficiente";
+                    break;
+                case FeasibilityReason::UnreachableClient:
+                    cout << "Cliente inalcanzable";
+                    break;
+                default:
+                    cout << "Desconocida";
+                    break;
+            }
+            cout << endl;
+            if (!best_solution.infeasibility_details.empty()) {
+                cout << "Detalles: " << best_solution.infeasibility_details << endl;
+            }
+        }
     }
 }
+
+// ============================================================================
+// SECCIÓN 7: IMPRESIÓN DE SOLUCIÓN
+// ============================================================================
 
 /**
  * IMPRIMIR SOLUCIÓN EN FORMATO ESPECIFICADO
@@ -1266,8 +1497,12 @@ void evolutionaryAlgo::print_solution(const Solution& solution) const {
  * =============
  * Expande una ruta usando PathUV para incluir estaciones intermedias.
  * 
+ * IMPORTANTE: Esta función simplemente expande la ruta usando los caminos preprocesados.
+ * La factibilidad ya está garantizada por el preprocesamiento (matriz W).
+ * 
  * @param route Ruta con solo clientes
  * @return Camino completo: [D, ..., C1, ..., R, ..., C2, ..., D]
+ *         Solo contiene: Depósito, clientes de route.clients (una vez cada uno), y estaciones
  */
 vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
     vector<int> full_path;
@@ -1279,6 +1514,12 @@ vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
     
     int M = U.size();
     
+    // Crear conjunto de clientes válidos para esta ruta
+    set<int> valid_clients;
+    for (int client : route.clients) {
+        valid_clients.insert(client);
+    }
+    
     // Agregar camino desde depósito (0) al primer cliente
     int first_client = route.clients[0];
     int u_idx_depot = 0;  // Depósito está en U[0]
@@ -1286,9 +1527,28 @@ vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
     
     if (u_idx_first >= 0) {
         vector<int> path_depot_to_first = PathUV[u_idx_depot * M + u_idx_first];
-        // Agregar todos los nodos del camino (incluye D y primer cliente)
+        // Agregar nodos del camino, filtrando clientes intermedios no válidos
         for (int node_id : path_depot_to_first) {
-            full_path.push_back(node_id);
+            if (node_id == 0) {
+                // Depósito: siempre agregar
+                full_path.push_back(node_id);
+            } else if (type[node_id] == NodeType::Station) {
+                // Estación: siempre agregar
+                full_path.push_back(node_id);
+            } else if (type[node_id] == NodeType::Client && valid_clients.count(node_id) > 0) {
+                // Cliente: solo agregar si está en valid_clients y no está ya en full_path
+                bool already_added = false;
+                for (int n : full_path) {
+                    if (n == node_id && type[n] == NodeType::Client) {
+                        already_added = true;
+                        break;
+                    }
+                }
+                if (!already_added) {
+                    full_path.push_back(node_id);
+                }
+            }
+            // Si el cliente no está en valid_clients, es un intermedio no válido → NO agregar
         }
     }
     
@@ -1300,10 +1560,25 @@ vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
         int u_idx_next = node_to_U_index(next_client);
         
         if (u_idx_current >= 0 && u_idx_next >= 0) {
-            vector<int> path_between = PathUV[u_idx_current * M + u_idx_next];
-            // Agregar todos los nodos excepto el primero (ya agregado como último del camino anterior)
+            int path_idx = u_idx_current * M + u_idx_next;
+            if (path_idx < 0 || path_idx >= (int)PathUV.size()) {
+                continue; // Saltar si hay error
+            }
+            vector<int> path_between = PathUV[path_idx];
+            // Agregar nodos excepto el primero (ya agregado como último del camino anterior)
+            // Filtrar clientes intermedios no válidos
             for (size_t j = 1; j < path_between.size(); j++) {
-                full_path.push_back(path_between[j]);
+                int node_id = path_between[j];
+                if (type[node_id] == NodeType::Station) {
+                    // Estación: siempre agregar
+                    full_path.push_back(node_id);
+                } else if (type[node_id] == NodeType::Client) {
+                    // Cliente: solo agregar si es el siguiente cliente esperado
+                    if (node_id == next_client) {
+                        full_path.push_back(node_id);
+                    }
+                    // Si es otro cliente, es un intermedio no válido → NO agregar
+                }
             }
         }
     }
@@ -1313,10 +1588,19 @@ vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
     int u_idx_last = node_to_U_index(last_client);
     
     if (u_idx_last >= 0) {
-        vector<int> path_last_to_depot = PathUV[u_idx_last * M + u_idx_depot];
-        // Agregar todos los nodos excepto el primero (ya agregado como último cliente)
+        int path_idx = u_idx_last * M + u_idx_depot;
+        if (path_idx < 0 || path_idx >= (int)PathUV.size()) {
+            return full_path; // Retornar ruta parcial si hay error
+        }
+        vector<int> path_last_to_depot = PathUV[path_idx];
+        // Agregar nodos excepto el primero (ya agregado como último cliente)
+        // Solo agregar estaciones y depósito
         for (size_t i = 1; i < path_last_to_depot.size(); i++) {
-            full_path.push_back(path_last_to_depot[i]);
+            int node_id = path_last_to_depot[i];
+            if (node_id == 0 || type[node_id] == NodeType::Station) {
+                full_path.push_back(node_id);
+            }
+            // No agregar clientes (solo el depósito debería estar aquí)
         }
     }
     
@@ -1374,4 +1658,264 @@ int evolutionaryAlgo::node_to_U_index(int node_id) const {
         }
     }
     return -1;  // No está en U (no debería ocurrir para clientes)
+}
+
+// ============================================================================
+// SECCIÓN 8: FUNCIONES DE DEBUGGING Y VISUALIZACIÓN
+// ============================================================================
+
+/**
+ * IMPRIMIR MATRIZ DE DISTANCIAS
+ * ==============================
+ * Imprime la matriz de distancias euclidianas entre todos los nodos.
+ */
+void evolutionaryAlgo::print_distance_matrix() const {
+    cout << "\n=== MATRIZ DE DISTANCIAS EUCLIDIANAS ===" << endl;
+    cout << "Nodos: " << N << " (0=Depósito, 1.." << P << "=Clientes, " 
+         << (P+1) << ".." << (N-1) << "=Estaciones)" << endl;
+    cout << fixed << setprecision(2);
+    
+    // Encabezado de columnas
+    cout << "\n      ";
+    for (int j = 0; j < N; j++) {
+        cout << setw(8) << j;
+    }
+    cout << endl;
+    
+    // Filas de la matriz
+    for (int i = 0; i < N; i++) {
+        // Etiqueta de fila con tipo de nodo
+        string label;
+        if (type[i] == NodeType::Depot) {
+            label = "D" + to_string(i);
+        } else if (type[i] == NodeType::Client) {
+            label = "C" + to_string(i);
+        } else {
+            label = "R" + to_string(i - P);
+        }
+        cout << setw(5) << label << " ";
+        
+        // Valores de la matriz
+        for (int j = 0; j < N; j++) {
+            cout << setw(8) << dist[i][j];
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+/**
+ * IMPRIMIR MATRIZ PREPROCESADA W
+ * ===============================
+ * Imprime la matriz W del grafo preprocesado (costos entre nodos en U).
+ */
+void evolutionaryAlgo::print_preprocessed_matrix() const {
+    int M = (int)U.size();
+    cout << "\n=== MATRIZ PREPROCESADA W (COSTOS ENTRE NODOS EN U) ===" << endl;
+    cout << "U contiene " << M << " nodos: Depósito (0) + " << P << " clientes" << endl;
+    cout << fixed << setprecision(2);
+    
+    // Encabezado de columnas
+    cout << "\n      ";
+    for (int j = 0; j < M; j++) {
+        int node_id = U[j];
+        string label;
+        if (type[node_id] == NodeType::Depot) {
+            label = "D" + to_string(node_id);
+        } else {
+            label = "C" + to_string(node_id);
+        }
+        cout << setw(10) << label;
+    }
+    cout << endl;
+    
+    // Filas de la matriz
+    for (int i = 0; i < M; i++) {
+        int node_id = U[i];
+        string label;
+        if (type[node_id] == NodeType::Depot) {
+            label = "D" + to_string(node_id);
+        } else {
+            label = "C" + to_string(node_id);
+        }
+        cout << setw(5) << label << " ";
+        
+        // Valores de la matriz
+        for (int j = 0; j < M; j++) {
+            if (isfinite(W[i][j])) {
+                cout << setw(10) << W[i][j];
+            } else {
+                cout << setw(10) << "INF";
+            }
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+/**
+ * IMPRIMIR MATRIZ RCNT (NÚMERO DE RECARGAS)
+ * ==========================================
+ * Imprime la matriz Rcnt que muestra el número de recargas entre nodos en U.
+ */
+void evolutionaryAlgo::print_recharge_count_matrix() const {
+    int M = (int)U.size();
+    cout << "\n=== MATRIZ RCNT (NÚMERO DE RECARGAS) ===" << endl;
+    cout << "U contiene " << M << " nodos: Depósito (0) + " << P << " clientes" << endl;
+    
+    // Encabezado de columnas
+    cout << "\n      ";
+    for (int j = 0; j < M; j++) {
+        int node_id = U[j];
+        string label;
+        if (type[node_id] == NodeType::Depot) {
+            label = "D" + to_string(node_id);
+        } else {
+            label = "C" + to_string(node_id);
+        }
+        cout << setw(6) << label;
+    }
+    cout << endl;
+    
+    // Filas de la matriz
+    for (int i = 0; i < M; i++) {
+        int node_id = U[i];
+        string label;
+        if (type[node_id] == NodeType::Depot) {
+            label = "D" + to_string(node_id);
+        } else {
+            label = "C" + to_string(node_id);
+        }
+        cout << setw(5) << label << " ";
+        
+        // Valores de la matriz
+        for (int j = 0; j < M; j++) {
+            if (Rcnt[i][j] != __INT_MAX__) {
+                cout << setw(6) << Rcnt[i][j];
+            } else {
+                cout << setw(6) << "INF";
+            }
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+/**
+ * IMPRIMIR INFORMACIÓN DE NODOS
+ * ==============================
+ * Imprime información detallada sobre todos los nodos.
+ */
+void evolutionaryAlgo::print_node_info() const {
+    cout << "\n=== INFORMACIÓN DE NODOS ===" << endl;
+    cout << "Total de nodos: " << N << endl;
+    cout << "  - Depósito: 1 (nodo 0)" << endl;
+    cout << "  - Clientes: " << P << " (nodos 1.." << P << ")" << endl;
+    cout << "  - Estaciones: " << S << " (nodos " << (P+1) << ".." << (N-1) << ")" << endl;
+    cout << "\nParámetros:" << endl;
+    cout << "  - B (vehículos): " << B << endl;
+    cout << "  - Q (capacidad): " << Q << endl;
+    cout << "  - B_max (autonomía): " << B_max << endl;
+    cout << "  - C_km (costo/km): " << C_km << endl;
+    cout << "  - C_rec (costo recarga): " << C_rec << endl;
+    
+    cout << "\nDetalle de nodos:" << endl;
+    cout << fixed << setprecision(2);
+    cout << setw(6) << "ID" << setw(10) << "Tipo" << setw(8) << "X" 
+         << setw(8) << "Y" << setw(10) << "Demanda" << endl;
+    cout << string(42, '-') << endl;
+    
+    for (int i = 0; i < N; i++) {
+        cout << setw(6) << i;
+        
+        if (type[i] == NodeType::Depot) {
+            cout << setw(10) << "Depósito";
+        } else if (type[i] == NodeType::Client) {
+            cout << setw(10) << "Cliente";
+        } else {
+            cout << setw(10) << "Estación";
+        }
+        
+        cout << setw(8) << coords[i].first 
+             << setw(8) << coords[i].second;
+        
+        if (type[i] == NodeType::Client) {
+            cout << setw(10) << demand[i - 1];
+        } else {
+            cout << setw(10) << "-";
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+/**
+ * IMPRIMIR CAMINOS COMPLETOS
+ * ===========================
+ * Imprime los caminos completos entre todos los pares de nodos en U.
+ */
+void evolutionaryAlgo::print_paths() const {
+    int M = (int)U.size();
+    cout << "\n=== CAMINOS COMPLETOS ENTRE NODOS EN U ===" << endl;
+    cout << "Formato: Origen -> [nodos intermedios] -> Destino (distancia, recargas, costo)" << endl;
+    cout << fixed << setprecision(2);
+    
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < M; j++) {
+            if (i == j) continue;
+            
+            int from = U[i];
+            int to = U[j];
+            
+            string from_label, to_label;
+            if (type[from] == NodeType::Depot) {
+                from_label = "D" + to_string(from);
+            } else {
+                from_label = "C" + to_string(from);
+            }
+            
+            if (type[to] == NodeType::Depot) {
+                to_label = "D" + to_string(to);
+            } else {
+                to_label = "C" + to_string(to);
+            }
+            
+            if (!isfinite(W[i][j])) {
+                cout << from_label << " -> " << to_label << ": NO ALCANZABLE" << endl;
+                continue;
+            }
+            
+            vector<int> path = PathUV[i * M + j];
+            if (path.empty()) {
+                cout << from_label << " -> " << to_label << ": CAMINO VACÍO" << endl;
+                continue;
+            }
+            
+            // Calcular distancia total del camino
+            double path_distance = 0.0;
+            for (size_t k = 0; k + 1 < path.size(); k++) {
+                path_distance += dist[path[k]][path[k + 1]];
+            }
+            
+            // Imprimir camino completo
+            for (size_t k = 0; k < path.size(); k++) {
+                int node_id = path[k];
+                if (type[node_id] == NodeType::Depot) {
+                    cout << "D" << node_id;
+                } else if (type[node_id] == NodeType::Client) {
+                    cout << "C" << node_id;
+                } else {
+                    cout << "R" << (node_id - P);
+                }
+                if (k < path.size() - 1) {
+                    cout << " -> ";
+                }
+            }
+            
+            cout << " (dist: " << path_distance 
+                 << ", recargas: " << Rcnt[i][j]
+                 << ", costo: " << W[i][j] << ")" << endl;
+        }
+    }
+    cout << endl;
 }

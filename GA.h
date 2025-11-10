@@ -55,6 +55,19 @@ struct Route {
 };
 
 /**
+ * @enum FeasibilityReason
+ * @brief Razones por las que una solución puede ser infactible
+ */
+enum class FeasibilityReason {
+    Feasible,           // Solución factible
+    CapacityExceeded,   // Se excede la capacidad Q de los vehículos
+    FleetExceeded,      // Se excede el número máximo B de vehículos
+    BatteryInsufficient, // Batería insuficiente (no hay estaciones cercanas)
+    UnreachableClient,  // Algún cliente es inalcanzable
+    Unknown             // Razón desconocida
+};
+
+/**
  * @struct Solution
  * @brief Representa una solución completa al EVRP
  * 
@@ -65,9 +78,12 @@ struct Solution {
     vector<Route> routes;   // Conjunto de rutas (cada ruta usa un vehículo)
     double total_cost;      // Costo total de la solución
     int num_vehicles;       // Número de vehículos utilizados
-    bool is_feasible;       // true si respeta Q (capacidad) y B (flota)
+    bool is_feasible;       // true si respeta Q (capacidad), B (flota) y batería
+    FeasibilityReason infeasibility_reason; // Razón de infactibilidad si is_feasible = false
+    string infeasibility_details; // Detalles adicionales sobre la infactibilidad
     
-    Solution() : total_cost(0.0), num_vehicles(0), is_feasible(false) {}
+    Solution() : total_cost(0.0), num_vehicles(0), is_feasible(false), 
+                 infeasibility_reason(FeasibilityReason::Unknown), infeasibility_details("") {}
 };
 
 // --- Función externa ---
@@ -136,6 +152,31 @@ class evolutionaryAlgo {
          * @param ls_iterations Número máximo de iteraciones de búsqueda local en mutación (K_max)
          */
         void initialize_parameters(int pop_size, int gens, double cross_rate, double mut_rate, int ls_iterations = 10);
+        
+        /**
+         * @brief Imprime la matriz de distancias euclidianas entre todos los nodos
+         */
+        void print_distance_matrix() const;
+        
+        /**
+         * @brief Imprime la matriz W del grafo preprocesado (costos entre nodos en U)
+         */
+        void print_preprocessed_matrix() const;
+        
+        /**
+         * @brief Imprime la matriz Rcnt (número de recargas entre nodos en U)
+         */
+        void print_recharge_count_matrix() const;
+        
+        /**
+         * @brief Imprime información sobre los nodos (tipos, coordenadas, etc.)
+         */
+        void print_node_info() const;
+        
+        /**
+         * @brief Imprime los caminos completos entre todos los pares de nodos en U
+         */
+        void print_paths() const;
         
     private:
         /**
@@ -229,7 +270,7 @@ class evolutionaryAlgo {
         vector<vector<int>> PathUV;     // PathUV[i*M + j]: camino completo de U[i] → U[j]
                                         // Incluye nodos origen, intermedios (solo estaciones) y destino
                                         // Formato: [U[i], estación1, estación2, ..., U[j]]
-                                        // Formato aplanado para optimizar memoria
+                                        // Vector 1D aplanado: tamaño M*M, acceso con índice i*M + j
         
     private:
         /**
