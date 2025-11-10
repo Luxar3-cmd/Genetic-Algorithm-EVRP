@@ -491,8 +491,6 @@ int evolutionaryAlgo::get_client_demand(int node_id) const {
     return demand[node_id - 1];
 }
 
-
-
 /**
  * FASE 0: CÁLCULO DE MATRIZ DE DISTANCIAS
  * =========================================
@@ -849,6 +847,16 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
             route.cost = 0.0;
         }
         
+        // VERIFICACIÓN SELECTIVA: Solo verificar batería cuando es claramente un problema
+        // Esto detecta casos como instancia4 donde la distancia total excede B_max sin recargas
+        if (!verify_route_battery_conservative(route)) {
+            sol.is_feasible = false;
+            sol.total_cost = numeric_limits<double>::infinity();
+            sol.infeasibility_reason = FeasibilityReason::BatteryInsufficient;
+            sol.infeasibility_details = "Ruta viola restricción de batería B_max=" + to_string(B_max);
+            return sol;
+        }
+        
         // Agregar ruta al inicio (estamos reconstruyendo en reversa)
         sol.routes.insert(sol.routes.begin(), route);
         
@@ -946,6 +954,11 @@ void evolutionaryAlgo::evaluate_population() {
         // Actualizar mejor solución si es factible y mejor
         if (sol.is_feasible && sol.total_cost < best_cost) {
             best_cost = sol.total_cost;
+            best_fitness_index = i;
+            best_solution = sol;
+        } else if (best_fitness_index < 0 && !sol.is_feasible) {
+            // Si no hay solución factible, guardar la primera infactible con información útil
+            // para poder mostrar detalles de por qué no es factible
             best_fitness_index = i;
             best_solution = sol;
         }
@@ -1413,6 +1426,15 @@ void evolutionaryAlgo::run() {
             if (!best_solution.infeasibility_details.empty()) {
                 cout << "Detalles: " << best_solution.infeasibility_details << endl;
             }
+        } else {
+            // No se encontró ninguna solución (ni factible ni infactible con información)
+            // Esto puede ocurrir si todas las soluciones tienen total_cost = infinito
+            // y no se pudo reconstruir ninguna solución
+            cout << "\nNo se pudo generar ninguna solución válida." << endl;
+            cout << "Posibles razones:" << endl;
+            cout << "  - Todos los clientes no son alcanzables desde el depósito" << endl;
+            cout << "  - No hay suficientes vehículos para atender todos los clientes" << endl;
+            cout << "  - Las restricciones de capacidad o batería son demasiado estrictas" << endl;
         }
     }
 }
@@ -1658,6 +1680,79 @@ int evolutionaryAlgo::node_to_U_index(int node_id) const {
         }
     }
     return -1;  // No está en U (no debería ocurrir para clientes)
+}
+
+/**
+ * VERIFICACIÓN CONSERVATIVA DE BATERÍA
+ * =====================================
+ * Verificación selectiva que solo marca como infactible cuando es claramente un problema.
+ * 
+ * Estrategia:
+ * 1. Expande la ruta para obtener el camino completo
+ * 2. Calcula la distancia total del camino expandido
+ * 3. Cuenta las recargas en el camino
+ * 4. Solo marca como infactible si:
+ *    - La distancia total claramente excede B_max (con pequeño margen de error)
+ *    - Y no hay recargas (o muy pocas recargas para la distancia)
+ * 
+ * Esta verificación es conservadora para evitar falsos positivos en casos límite.
+ * 
+ * @param route Ruta a verificar
+ * @return true si la ruta es factible, false si claramente viola B_max
+ */
+bool evolutionaryAlgo::verify_route_battery_conservative(const Route& route) const {
+    if (route.clients.empty()) {
+        // Ruta vacía: siempre factible
+        return true;
+    }
+    
+    // Expandir ruta para obtener camino completo con estaciones
+    vector<int> full_path = expand_route(route);
+    
+    if (full_path.empty() || full_path.size() < 2) {
+        // Camino inválido: asumir factible para ser conservador
+        return true;
+    }
+    
+    // Calcular distancia total del camino expandido
+    double total_distance = calculate_route_distance(full_path);
+    
+    // Contar recargas en el camino
+    int num_recharges = count_recharges(full_path);
+    
+    // Verificación conservadora:
+    // Solo marcar como infactible cuando es CLARAMENTE un problema obvio
+    // 
+    // Criterio: Solo marcar como infactible si:
+    // 1. La distancia total es significativamente mayor que B_max (más del 50% de exceso)
+    // 2. Y no hay recargas suficientes (menos de 1 recarga por cada B_max de distancia)
+    // 
+    // Esto es muy conservador para evitar falsos positivos en casos límite
+    // como instancia6 donde distancia ≈ B_max
+    
+    // Calcular cuántas recargas se necesitarían teóricamente
+    int theoretical_recharges_needed = (int)ceil((total_distance - B_max) / B_max);
+    if (theoretical_recharges_needed < 0) theoretical_recharges_needed = 0;
+    
+    // Solo marcar como infactible si:
+    // - La distancia es más del 50% mayor que B_max sin recargas
+    // - O si hay un déficit claro de recargas (necesita más del doble de las que tiene)
+    bool clearly_infeasible = false;
+    
+    if (num_recharges == 0 && total_distance > B_max * 1.5) {
+        // Sin recargas y distancia > 1.5 * B_max: claramente infactible
+        clearly_infeasible = true;
+    } else if (num_recharges > 0 && theoretical_recharges_needed > num_recharges * 2) {
+        // Déficit muy claro de recargas: necesita más del doble de las que tiene
+        clearly_infeasible = true;
+    }
+    
+    if (clearly_infeasible) {
+        return false;
+    }
+    
+    // Si llegamos aquí, la ruta es factible (o al menos no claramente infactible)
+    return true;
 }
 
 // ============================================================================

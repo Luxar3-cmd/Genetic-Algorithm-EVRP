@@ -222,6 +222,20 @@ class evolutionaryAlgo {
          * @return Índice en U, o -1 si no está en U
          */
         int node_to_U_index(int node_id) const;
+        
+        /**
+         * @brief Verifica si una ruta viola claramente la restricción de batería
+         * 
+         * Verificación selectiva que solo marca como infactible cuando:
+         * - La distancia total de la ruta expandida claramente excede B_max
+         * - Y no hay recargas en la ruta
+         * 
+         * Esta verificación es conservadora para evitar falsos positivos.
+         * 
+         * @param route Ruta a verificar
+         * @return true si la ruta es factible, false si claramente viola B_max
+         */
+        bool verify_route_battery_conservative(const Route& route) const;
 
 
         // ========== Parámetros del Problema ==========

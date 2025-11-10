@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
         
         // Configurar parámetros del algoritmo genético
         // Parámetros: población, generaciones, tasa_cruce, tasa_mutación, iteraciones_búsqueda_local
-        EVRP.initialize_parameters(50, 100, 0.8, 0.3, 20);
+        EVRP.initialize_parameters(30, 20, 0.8, 0.2, 20);
         
         // Ejecutar algoritmo genético
         // Esto ejecuta el GA y imprime la solución final
