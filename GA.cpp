@@ -329,8 +329,6 @@ void evolutionaryAlgo::build_types() {
  * 
  * Restricciones:
  * 1. Solo existe arista a→b si dist[a][b] ≤ B_max (el vehículo puede llegar con una carga)
- * 2. Desde Estación: solo puede ir a Depot o Cliente (para evitar cadenas de estaciones)
- * 3. Desde cualquier otro nodo: puede ir a cualquier nodo si dist ≤ B_max
  * 
  * Cálculo de peso:
  * - w = C_km × dist[a][b] + C_rec (si b es estación)
@@ -339,17 +337,16 @@ void evolutionaryAlgo::build_types() {
  * Asunción: Al llegar a una estación, se realiza una recarga completa al 100%.
  * El costo C_rec se cobra al LLEGAR a la estación.
  * 
- * Nota: Se permiten aristas cliente→cliente si dist ≤ B_max. El algoritmo de Dijkstra
+ * Nota: Se permiten todas las conexiones válidas si dist ≤ B_max. El algoritmo de Dijkstra
  * elegirá automáticamente el camino más corto (directo o pasando por estaciones según
- * sea necesario).
+ * sea necesario), incluyendo caminos que pasen por múltiples estaciones consecutivas.
  */
 void evolutionaryAlgo::build_graph() {
     // Inicializar lista de adyacencia vacía para cada nodo
     adj.assign(N, {}); 
     
     // Construir aristas entre pares de nodos según reglas de conectividad
-    // Permitimos todas las conexiones válidas respetando B_max, excepto:
-    // Estaciones no pueden ir a otras estaciones (para evitar cadenas de estaciones, modelo limitado)
+    // Permitimos todas las conexiones válidas respetando B_max
     
     for (int a = 0; a < N; a++) {
         for (int b = 0; b < N; b++) {
@@ -359,33 +356,14 @@ void evolutionaryAlgo::build_graph() {
             
             // Solo crear arista si está dentro de la autonomía del vehículo
             if (d <= B_max) {
-                // Determinar si esta arista es válida según el tipo de nodos
-                bool valid_edge = false;
+                // Todas las conexiones son válidas si respetan B_max
+                // Calcular peso: costo por kilómetro + posible costo de recarga
+                double w = C_km * d + (type[b] == NodeType::Station ? C_rec : 0.0); 
                 
-                if (type[a] == NodeType::Depot) {
-                    // Desde Depot: puede ir a Clientes o Estaciones
-                    valid_edge = true;
-                } else if (type[a] == NodeType::Client) {
-                    // Desde Cliente: puede ir a Depot, Clientes o Estaciones
-                    // (siempre que dist ≤ B_max)
-                        valid_edge = true;
-                } else if (type[a] == NodeType::Station) {
-                    // Desde Estación: solo puede ir a Depot o Cliente
-                    // (no puede ir a otra estación, evitando cadenas de estaciones)
-                    if (type[b] == NodeType::Depot || type[b] == NodeType::Client) {
-                        valid_edge = true;
-                    }
-                }
-                
-                if (valid_edge) {
-                    // Calcular peso: costo por kilómetro + posible costo de recarga
-                    double w = C_km * d + (type[b] == NodeType::Station ? C_rec : 0.0); 
-                    
-                    // Agregar arista a la lista de adyacencia
-                    adj[a].push_back(Edge{b, w, type[b] == NodeType::Station});
-                }
+                // Agregar arista a la lista de adyacencia
+                adj[a].push_back(Edge{b, w, type[b] == NodeType::Station});
             }
-            // Si d > B_max o arista no válida, no se crea la arista
+            // Si d > B_max, no se crea la arista
         }
     }
 }
