@@ -1,10 +1,12 @@
 /**
- * Programa para mostrar matrices de distancias y preprocesamiento
- * ===============================================================
+ * @file show_matrices.cpp
+ * @brief Programa para mostrar matrices de distancias y preprocesamiento
  * 
- * Uso: ./show_matrices <archivo_instancia>
+ * Programa de utilidad para visualizar las matrices de distancias y los resultados
+ * del preprocesamiento del grafo EVRP.
  * 
- * Ejemplo: ./show_matrices instancias/instancia2.txt
+ * @usage ./show_matrices <archivo_instancia>
+ * @example ./show_matrices instancias/instancia2.txt
  */
 #include <iostream>
 #include <string>

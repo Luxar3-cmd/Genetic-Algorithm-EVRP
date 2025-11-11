@@ -1,6 +1,6 @@
 /**
- * GA.cpp - Implementación del Algoritmo Genético para EVRP
- * =========================================================
+ * @file GA.cpp
+ * @brief Implementación del Algoritmo Genético para EVRP
  * 
  * Este archivo contiene la implementación completa del algoritmo genético
  * para resolver el problema de enrutamiento de vehículos eléctricos (EVRP).
@@ -24,13 +24,17 @@ using namespace std;
 // ============================================================================
 
 /**
- * FASE 3: PREPROCESAMIENTO DE CAMINOS ÓPTIMOS
- * ==============================================
+ * @brief Preprocesa los caminos óptimos entre todos los pares de nodos en U
+ * 
  * Esta función colapsa el grafo completo (N nodos) en un grafo contraído (M nodos)
  * donde M = P+1 = |U| = tamaño del conjunto de nodos obligatorios.
  * 
  * Objetivo: Calcular el costo óptimo entre cada par de nodos en U (depósito + clientes),
  * considerando automáticamente las estaciones de recarga necesarias.
+ * 
+ * Para cada par (i,j) en U × U:
+ * - Ejecuta dijkstra_lex desde U[i]
+ * - Calcula W[i][j], Rcnt[i][j], PathUV[i*M+j]
  * 
  * Resultado:
  * - W[i][j]: Costo mínimo para ir de U[i] a U[j] (puede incluir estaciones intermedias)
@@ -94,15 +98,15 @@ void evolutionaryAlgo::preprocess_paths() {
 }
 
 /**
- * RECONSTRUCCIÓN DE CAMINO
- * =========================
+ * @brief Reconstruye el camino desde start_id hasta target_id usando el vector prev
+ * 
  * Reconstruye el camino completo desde start_id hasta target_id usando el
  * vector de predecesores generado por dijkstra_lex.
  * 
  * @param start_id Nodo origen del camino
  * @param target_id Nodo destino del camino
  * @param prev Vector de predecesores donde prev[v] = nodo anterior a v en el camino mínimo
- * @return Vector con todos los nodos del camino: [start_id, n1, n2, ..., target_id]
+ * @return Vector con todos los nodos del camino: [start_id, n1, n2, ..., target_id].
  *         Incluye estaciones de recarga intermedias si las hay.
  *         Retorna vector vacío si no existe camino.
  */
@@ -146,16 +150,19 @@ vector<int> evolutionaryAlgo::reconstruct_path(int start_id, int target_id, cons
  * en un min-heap (necesario para Dijkstra).
  */
 struct State {
-    double dist;        // Distancia/costo acumulado desde el origen
-    int rec;            // Número de recargas realizadas en el camino
-    int v;              // Nodo actual
-    double battery;     // Batería residual al llegar a este nodo
+    double dist;        ///< Distancia/costo acumulado desde el origen
+    int rec;            ///< Número de recargas realizadas en el camino
+    int v;              ///< Nodo actual
+    double battery;     ///< Batería residual al llegar a este nodo
     
     /**
      * @brief Operador de comparación invertido para min-heap
      * 
      * Orden lexicográfico: primero por distancia, luego por recargas.
      * Se invierte (> en lugar de <) porque priority_queue es max-heap por defecto.
+     * 
+     * @param o Estado a comparar
+     * @return true si este estado tiene menor prioridad que o
      */
     bool operator<(const State& o) const {
         if (dist != o.dist) return dist > o.dist; // Invertido: menor distancia = mayor prioridad
@@ -164,8 +171,8 @@ struct State {
 };
 
 /**
- * DIJKSTRA LEXICOGRÁFICO CON VERIFICACIÓN DE BATERÍA
- * ====================================================
+ * @brief Dijkstra con prioridad lexicográfica: (distancia, recargas)
+ * 
  * Algoritmo de Dijkstra modificado con orden lexicográfico: (distancia, recargas).
  * 
  * Encuentra los caminos de costo mínimo desde start_id a todos los demás nodos,
@@ -265,8 +272,8 @@ void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<
 }
 
 /**
- * FASE 1: CLASIFICACIÓN DE NODOS
- * ================================
+ * @brief Clasifica cada nodo según su tipo y construye el conjunto U
+ * 
  * Asigna un tipo (Depot, Client, Station) a cada nodo según su índice.
  * 
  * Estructura de índices del problema:
@@ -276,6 +283,13 @@ void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<
  * 
  * También construye el conjunto U de nodos obligatorios (depósito + clientes)
  * que serán los únicos nodos considerados por el algoritmo genético.
+ * 
+ * Asigna:
+ * - type[0] = Depot
+ * - type[1..P] = Client
+ * - type[P+1..N-1] = Station
+ * 
+ * Construye U = {0, 1, 2, ..., P} (depósito + clientes)
  */
 void evolutionaryAlgo::build_types() {
     // Inicializar todos como clientes (luego se corrigen depósito y estaciones)
@@ -309,8 +323,8 @@ void evolutionaryAlgo::build_types() {
 }
 
 /**
- * FASE 2: CONSTRUCCIÓN DEL GRAFO EXTENDIDO
- * ==========================================
+ * @brief Construye el grafo extendido considerando la restricción de autonomía
+ * 
  * Construye la lista de adyacencia del grafo considerando la restricción de autonomía.
  * 
  * Restricciones:
@@ -377,8 +391,8 @@ void evolutionaryAlgo::build_graph() {
 }
 
 /**
- * CONSTRUCTOR
- * ===========
+ * @brief Constructor: lee la instancia y preprocesa el grafo
+ * 
  * Lee la instancia del problema desde un archivo y ejecuta el preprocesamiento completo.
  * 
  * Formato del archivo (valores separados por whitespace, puede estar en múltiples líneas):
@@ -405,6 +419,9 @@ void evolutionaryAlgo::build_graph() {
  * 3. Clasificar nodos y construir conjunto U
  * 4. Construir grafo extendido con restricción B_max
  * 5. Preprocesar caminos óptimos entre nodos en U
+ * 
+ * @param filename Ruta al archivo de instancia del problema
+ * @throws runtime_error Si no se puede abrir el archivo o si los parámetros son inválidos
  */
 evolutionaryAlgo::evolutionaryAlgo(const string& filename) {
     ifstream file(filename); 
@@ -466,15 +483,15 @@ evolutionaryAlgo::evolutionaryAlgo(const string& filename) {
 // ============================================================================
 
 /**
- * HELPER: OBTENER DEMANDA DE UN CLIENTE
- * ======================================
+ * @brief Obtiene la demanda de un cliente dado su node_id
+ * 
  * Función helper para acceder a la demanda de un cliente de forma segura.
+ * Internamente convierte node_id a índice del vector demand.
+ * demand[node_id - 1] = demanda del cliente con node_id
  * 
- * @param node_id ID del nodo (debe ser un cliente: node_id ∈ [1, P])
+ * @param node_id ID del nodo cliente (debe estar en rango [1, P])
  * @return Demanda del cliente
- * 
- * Nota: Internamente convierte node_id a índice del vector demand.
- *       demand[node_id - 1] = demanda del cliente con node_id
+ * @throws runtime_error si node_id no corresponde a un cliente
  */
 int evolutionaryAlgo::get_client_demand(int node_id) const {
     // Validar que es un cliente válido
@@ -492,14 +509,15 @@ int evolutionaryAlgo::get_client_demand(int node_id) const {
 }
 
 /**
- * FASE 0: CÁLCULO DE MATRIZ DE DISTANCIAS
- * =========================================
- * Calcula la distancia euclidiana entre todos los pares de nodos.
+ * @brief Calcula la matriz de distancias euclidianas entre todos los nodos
+ * 
+ * Calcula la distancia euclidiana entre todos los pares de nodos usando la fórmula:
+ * d = √[(x_j - x_i)² + (y_j - y_i)²]
  * 
  * @param coords Vector de coordenadas (x,y) de cada nodo
  * @param P Número de clientes
  * @param S Número de estaciones de recarga
- * @return Matriz simétrica N×N donde dist[i][j] = distancia euclidiana entre i y j
+ * @return Matriz simétrica N×N donde dist[i][j] = distancia euclidiana entre i y j.
  *         N = 1 (depósito) + P (clientes) + S (estaciones)
  */
 vector<vector<double>> matrix_distances(const vector<pair<int,int>>& coords, int P, int S) {
@@ -522,18 +540,39 @@ vector<vector<double>> matrix_distances(const vector<pair<int,int>>& coords, int
     return matriz; 
 }
 
+/**
+ * @brief Inicializa los parámetros del algoritmo genético
+ * 
+ * Configura los parámetros del algoritmo genético que controlan su comportamiento.
+ * 
+ * @param pop_size Tamaño de la población
+ * @param gens Número de generaciones
+ * @param cross_rate Tasa de cruce (probabilidad de cruzar dos padres)
+ * @param mut_rate Tasa de mutación (probabilidad de mutar un individuo)
+ * @param ls_iterations Número máximo de iteraciones de búsqueda local en mutación (K_max)
+ */
 void evolutionaryAlgo::initialize_parameters(int pop_size, int gens, double cross_rate, double mut_rate, int ls_iterations) {
-    // Configuración del algoritmo genético por defecto
-    population_size = pop_size;      // Tamaño de la población 
-    generations = gens;          // Número de generaciones a ejecutar
-    crossover_rate = cross_rate;       // Tasa de cruce entre individuos
-    mutation_rate = mut_rate;        // Tasa de mutación de genes
-    local_search_iterations = ls_iterations;  // Iteraciones máximas de búsqueda local
+    population_size = pop_size;
+    generations = gens;
+    crossover_rate = cross_rate;
+    mutation_rate = mut_rate;
+    local_search_iterations = ls_iterations;
 }
 
+/**
+ * @brief Inicializa la población de soluciones aleatoriamente
+ * 
+ * Genera una población inicial de cromosomas (permutaciones de clientes) de forma aleatoria.
+ * Cada cromosoma es una permutación única de los clientes [1, 2, ..., P].
+ * 
+ * La función asegura que:
+ * - Todos los individuos sean únicos (no hay duplicados)
+ * - El tamaño de la población no exceda el número máximo de permutaciones posibles (P!)
+ * - Si el tamaño solicitado excede P!, se ajusta automáticamente
+ */
 void evolutionaryAlgo::initialize_population() {
     // Calcular el número máximo de permutaciones posibles
-    // Para P clientes, hay P! pemutaciones posibles
+    // Para P clientes, hay P! permutaciones posibles
     auto factorial = [](int n) -> unsigned long long {
         unsigned long long result = 1;
         for (int i = 2; i <= n; i++) {
@@ -603,8 +642,8 @@ void evolutionaryAlgo::initialize_population() {
 // ============================================================================
 
 /**
- * FUNCIÓN SPLIT - Algoritmo de Partición Óptima
- * ==============================================
+ * @brief Aplica el algoritmo split a un cromosoma para obtener la mejor solución VRP
+ * 
  * Implementa el algoritmo split del paper de Prins para VRP, adaptado a EVRP.
  * 
  * Dado un cromosoma (permutación de clientes), construye un grafo auxiliar H donde:
@@ -729,8 +768,8 @@ Solution evolutionaryAlgo::split(const vector<int>& chromosome) const {
 }
 
 /**
- * RECONSTRUCCIÓN DE SOLUCIÓN DESDE SPLIT
- * =======================================
+ * @brief Reconstruye la solución desde el vector de predecesores del algoritmo split
+ * 
  * Toma los resultados de la programación dinámica (V y Pred) y reconstruye
  * la solución completa con todas las rutas, calculando cargas y costos.
  * 
@@ -887,8 +926,8 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
 // ============================================================================
 
 /**
- * EVALUACIÓN DE POBLACIÓN
- * ========================
+ * @brief Evalúa la aptitud de cada individuo en la población, utilizando la función split
+ * 
  * Evalúa la aptitud (fitness) de cada individuo en la población usando la función split.
  * 
  * Para cada cromosoma en la población:
@@ -970,8 +1009,8 @@ void evolutionaryAlgo::evaluate_population() {
 }
 
 /**
- * BINARY TOURNAMENT SELECTION
- * ============================
+ * @brief Realiza la selección de padres usando Binary Tournament Selection
+ * 
  * Selecciona padres mediante torneos binarios.
  * 
  * En cada torneo:
@@ -1024,8 +1063,8 @@ void evolutionaryAlgo::selection() {
 }
 
 /**
- * ORDER CROSSOVER (OX)
- * ====================
+ * @brief Realiza el cruce de padres usando Order Crossover (OX)
+ * 
  * Implementa el operador de cruce Order Crossover para permutaciones.
  * 
  * Order Crossover preserva:
@@ -1044,6 +1083,8 @@ void evolutionaryAlgo::selection() {
  * Segmento: [2, 4] (posiciones 1-2)
  * Hijo: [_, 2, 4, _, _, _]
  * Completar con Padre 2: [5, 2, 4, 6, 1, 3]
+ * 
+ * El cruce se aplica según crossover_rate. Si no se cruza, los padres se copian directamente.
  */
 void evolutionaryAlgo::crossover() {
     // Inicializar generador de números aleatorios
@@ -1157,9 +1198,7 @@ void evolutionaryAlgo::crossover() {
 }
 
 /**
- * MUTACIÓN - BÚSQUEDA LOCAL
- * ==========================
- * Aplica mutación tipo búsqueda local a los individuos de la población.
+ * @brief Aplica mutación tipo búsqueda local a los individuos de la población
  * 
  * La mutación utiliza tres tipos de movimientos:
  * 1. 2-opt: Invierte un segmento de la permutación
@@ -1190,8 +1229,8 @@ void evolutionaryAlgo::mutation() {
 }
 
 /**
- * BÚSQUEDA LOCAL PARA UN INDIVIDUO
- * ==================================
+ * @brief Aplica búsqueda local a un individuo específico
+ * 
  * Aplica búsqueda local a un individuo específico usando movimientos aleatorios.
  * 
  * Estrategia: First Improvement
@@ -1284,8 +1323,8 @@ bool evolutionaryAlgo::local_search_mutation(size_t individual) {
 }
 
 /**
- * MOVIMIENTO 2-OPT
- * ================
+ * @brief Aplica movimiento 2-opt a una permutación
+ * 
  * Invierte el segmento entre las posiciones i y j (inclusive).
  * 
  * Ejemplo: [1, 2, 3, 4, 5] con i=1, j=3 → [1, 4, 3, 2, 5]
@@ -1303,8 +1342,8 @@ void evolutionaryAlgo::apply_2opt(vector<int>& chromosome, int i, int j) const {
 }
 
 /**
- * MOVIMIENTO RELOCATE
- * ===================
+ * @brief Aplica movimiento Relocate a una permutación
+ * 
  * Mueve el elemento en posición i a la posición j.
  * 
  * Si i < j: desplaza elementos hacia la izquierda
@@ -1338,8 +1377,8 @@ void evolutionaryAlgo::apply_relocate(vector<int>& chromosome, int i, int j) con
 }
 
 /**
- * MOVIMIENTO SWAP
- * ===============
+ * @brief Aplica movimiento Swap a una permutación
+ * 
  * Intercambia los elementos en las posiciones i y j.
  * 
  * Ejemplo: [1, 2, 3, 4, 5] con i=1, j=3 → [1, 4, 3, 2, 5]
@@ -1359,8 +1398,8 @@ void evolutionaryAlgo::apply_swap(vector<int>& chromosome, int i, int j) const {
 // ============================================================================
 
 /**
- * EJECUCIÓN DEL ALGORITMO GENÉTICO
- * ==================================
+ * @brief Ejecuta el algoritmo genético completo
+ * 
  * Loop principal del algoritmo genético.
  * 
  * Proceso:
@@ -1371,7 +1410,10 @@ void evolutionaryAlgo::apply_swap(vector<int>& chromosome, int i, int j) const {
  *    - Aplica cruce (Order Crossover)
  *    - Aplica mutación (Búsqueda Local)
  *    - Evalúa la nueva población
- * 4. Al finalizar, imprime la mejor solución
+ * 4. Al finalizar, imprime la mejor solución en el formato especificado
+ * 
+ * Si no se encuentra solución factible, imprime información detallada sobre
+ * la razón de infactibilidad.
  */
 void evolutionaryAlgo::run() {
     // Inicializar población
@@ -1444,12 +1486,14 @@ void evolutionaryAlgo::run() {
 // ============================================================================
 
 /**
- * IMPRIMIR SOLUCIÓN EN FORMATO ESPECIFICADO
- * ==========================================
+ * @brief Imprime la solución en el formato de salida especificado
+ * 
  * Imprime la solución en el formato requerido:
  * - Costo total
- * - Para cada vehículo: ruta completa, distancia, recargas
+ * - Para cada vehículo: ruta completa (con estaciones), distancia, recargas
  * - Leyenda explicativa
+ * 
+ * @param solution Solución a imprimir
  */
 void evolutionaryAlgo::print_solution(const Solution& solution) const {
     // Imprimir costo total inicial (con 1 decimal según el ejemplo)
@@ -1515,15 +1559,15 @@ void evolutionaryAlgo::print_solution(const Solution& solution) const {
 }
 
 /**
- * EXPANDIR RUTA
- * =============
+ * @brief Expande una ruta usando PathUV para mostrar el camino completo con estaciones
+ * 
  * Expande una ruta usando PathUV para incluir estaciones intermedias.
  * 
  * IMPORTANTE: Esta función simplemente expande la ruta usando los caminos preprocesados.
  * La factibilidad ya está garantizada por el preprocesamiento (matriz W).
  * 
- * @param route Ruta con solo clientes
- * @return Camino completo: [D, ..., C1, ..., R, ..., C2, ..., D]
+ * @param route Ruta a expandir
+ * @return Vector con la secuencia completa de nodos: [D, ..., C, ..., R, ..., D].
  *         Solo contiene: Depósito, clientes de route.clients (una vez cada uno), y estaciones
  */
 vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
@@ -1630,12 +1674,12 @@ vector<int> evolutionaryAlgo::expand_route(const Route& route) const {
 }
 
 /**
- * CALCULAR DISTANCIA DE RUTA
- * ===========================
+ * @brief Calcula la distancia total real de un camino expandido
+ * 
  * Calcula la distancia total real sumando distancias euclidianas entre nodos consecutivos.
  * 
  * @param path Camino completo de nodos
- * @return Distancia total
+ * @return Distancia total euclidiana
  */
 double evolutionaryAlgo::calculate_route_distance(const vector<int>& path) const {
     if (path.size() < 2) return 0.0;
@@ -1648,12 +1692,12 @@ double evolutionaryAlgo::calculate_route_distance(const vector<int>& path) const
 }
 
 /**
- * CONTAR RECARGAS
- * ===============
+ * @brief Cuenta el número de recargas en un camino expandido
+ * 
  * Cuenta el número de estaciones de recarga en el camino.
  * 
  * @param path Camino completo de nodos
- * @return Número de estaciones visitadas
+ * @return Número de estaciones de recarga visitadas
  */
 int evolutionaryAlgo::count_recharges(const vector<int>& path) const {
     int count = 0;
@@ -1666,8 +1710,8 @@ int evolutionaryAlgo::count_recharges(const vector<int>& path) const {
 }
 
 /**
- * CONVERTIR NODE_ID A ÍNDICE EN U
- * ================================
+ * @brief Convierte un node_id a su índice en el conjunto U
+ * 
  * Convierte un node_id a su índice en el conjunto U.
  * 
  * @param node_id ID del nodo
@@ -1683,8 +1727,8 @@ int evolutionaryAlgo::node_to_U_index(int node_id) const {
 }
 
 /**
- * VERIFICACIÓN CONSERVATIVA DE BATERÍA
- * =====================================
+ * @brief Verifica si una ruta viola claramente la restricción de batería
+ * 
  * Verificación selectiva que solo marca como infactible cuando es claramente un problema.
  * 
  * Estrategia:
@@ -1760,9 +1804,10 @@ bool evolutionaryAlgo::verify_route_battery_conservative(const Route& route) con
 // ============================================================================
 
 /**
- * IMPRIMIR MATRIZ DE DISTANCIAS
- * ==============================
- * Imprime la matriz de distancias euclidianas entre todos los nodos.
+ * @brief Imprime la matriz de distancias euclidianas entre todos los nodos
+ * 
+ * Imprime la matriz de distancias euclidianas entre todos los nodos en formato tabular.
+ * Incluye etiquetas para identificar depósitos (D), clientes (C) y estaciones (R).
  */
 void evolutionaryAlgo::print_distance_matrix() const {
     cout << "\n=== MATRIZ DE DISTANCIAS EUCLIDIANAS ===" << endl;
@@ -1800,9 +1845,11 @@ void evolutionaryAlgo::print_distance_matrix() const {
 }
 
 /**
- * IMPRIMIR MATRIZ PREPROCESADA W
- * ===============================
- * Imprime la matriz W del grafo preprocesado (costos entre nodos en U).
+ * @brief Imprime la matriz W del grafo preprocesado (costos entre nodos en U)
+ * 
+ * Imprime la matriz W del grafo preprocesado (costos entre nodos en U) en formato tabular.
+ * Muestra los costos mínimos entre todos los pares de nodos obligatorios (depósito + clientes),
+ * incluyendo automáticamente las estaciones de recarga necesarias.
  */
 void evolutionaryAlgo::print_preprocessed_matrix() const {
     int M = (int)U.size();
@@ -1849,9 +1896,10 @@ void evolutionaryAlgo::print_preprocessed_matrix() const {
 }
 
 /**
- * IMPRIMIR MATRIZ RCNT (NÚMERO DE RECARGAS)
- * ==========================================
- * Imprime la matriz Rcnt que muestra el número de recargas entre nodos en U.
+ * @brief Imprime la matriz Rcnt (número de recargas entre nodos en U)
+ * 
+ * Imprime la matriz Rcnt que muestra el número de recargas entre nodos en U en formato tabular.
+ * Muestra cuántas recargas se realizan en el camino mínimo entre cada par de nodos obligatorios.
  */
 void evolutionaryAlgo::print_recharge_count_matrix() const {
     int M = (int)U.size();
@@ -1897,9 +1945,13 @@ void evolutionaryAlgo::print_recharge_count_matrix() const {
 }
 
 /**
- * IMPRIMIR INFORMACIÓN DE NODOS
- * ==============================
- * Imprime información detallada sobre todos los nodos.
+ * @brief Imprime información sobre los nodos (tipos, coordenadas, etc.)
+ * 
+ * Imprime información detallada sobre todos los nodos, incluyendo:
+ * - Tipo de nodo (Depósito, Cliente, Estación)
+ * - Coordenadas (x, y)
+ * - Demanda (solo para clientes)
+ * - Parámetros del problema (B, Q, B_max, C_km, C_rec)
  */
 void evolutionaryAlgo::print_node_info() const {
     cout << "\n=== INFORMACIÓN DE NODOS ===" << endl;
@@ -1945,9 +1997,14 @@ void evolutionaryAlgo::print_node_info() const {
 }
 
 /**
- * IMPRIMIR CAMINOS COMPLETOS
- * ===========================
- * Imprime los caminos completos entre todos los pares de nodos en U.
+ * @brief Imprime los caminos completos entre todos los pares de nodos en U
+ * 
+ * Imprime los caminos completos entre todos los pares de nodos en U, incluyendo
+ * estaciones de recarga intermedias. Para cada par de nodos muestra:
+ * - El camino completo con todos los nodos intermedios
+ * - La distancia total del camino
+ * - El número de recargas realizadas
+ * - El costo total del camino
  */
 void evolutionaryAlgo::print_paths() const {
     int M = (int)U.size();

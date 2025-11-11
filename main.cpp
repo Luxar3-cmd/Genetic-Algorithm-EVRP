@@ -1,10 +1,12 @@
 /**
- * Programa Principal - Algoritmo Genético para EVRP
- * ==================================================
+ * @file main.cpp
+ * @brief Programa Principal - Algoritmo Genético para EVRP
  * 
- * Uso: ./evrp_solver <archivo_instancia>
+ * Programa principal para ejecutar el algoritmo genético que resuelve el problema
+ * de enrutamiento de vehículos eléctricos (EVRP).
  * 
- * Ejemplo: ./evrp_solver instancias/instancia4.txt
+ * @usage ./evrp_solver <archivo_instancia>
+ * @example ./evrp_solver instancias/instancia4.txt
  */
 #include <iostream>
 #include <string>
@@ -38,7 +40,7 @@ int main(int argc, char* argv[]) {
         
         // Configurar parámetros del algoritmo genético
         // Parámetros: población, generaciones, tasa_cruce, tasa_mutación, iteraciones_búsqueda_local
-        EVRP.initialize_parameters(30, 20, 0.8, 0.2, 20);
+        EVRP.initialize_parameters(5, 20, 0.8, 0.2, 20);
         
         // Ejecutar algoritmo genético
         // Esto ejecuta el GA y imprime la solución final

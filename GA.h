@@ -1,6 +1,12 @@
-// ga_H.h
-// Implementación de Algoritmo Genético para Electric Vehicle Routing Problem (EVRP)
-// Utiliza representación TSP-like con grafo preprocesado para manejar estaciones de recarga
+/**
+ * @file GA.h
+ * @brief Implementación de Algoritmo Genético para Electric Vehicle Routing Problem (EVRP)
+ * 
+ * Este archivo define la clase principal para resolver el problema de enrutamiento
+ * de vehículos eléctricos (EVRP) mediante un algoritmo genético.
+ * 
+ * Utiliza representación TSP-like con grafo preprocesado para manejar estaciones de recarga.
+ */
 #ifndef ga_H
 #define ga_H
 
