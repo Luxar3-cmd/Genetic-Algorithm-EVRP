@@ -56,7 +56,7 @@ rebuild: clean all
 
 # Ejecutar con instancia por defecto
 run: $(TARGET)
-	./$(TARGET) instancias/instancia1.txt
+	./$(TARGET) instancias/instancia6.txt
 
 # Ayuda
 help:

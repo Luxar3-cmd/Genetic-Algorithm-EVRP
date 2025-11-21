@@ -43,23 +43,24 @@ using namespace std;
  */
 void evolutionaryAlgo::preprocess_paths() {
     int M = (int)U.size(); // M = P+1 (depósito + clientes)
-    
+    int B_steps = (int)round(B_max);
+    if (B_steps <= 0) B_steps = 1; 
+
     // Inicializar matrices de salida con valores infinitos
     W.assign(M, vector<double>(M, numeric_limits<double>::infinity()));
     Rcnt.assign(M, vector<int>(M, __INT_MAX__));
     PathUV.assign(M*M, {}); // Almacenamiento aplanado: índice = iu*M + jv
     
     // Vectores temporales para dijkstra
-    vector<double> distG;
-    vector<int> recG, prev; 
+    vector<vector<double>> distG(N, vector<double>(B_max + 1, numeric_limits<double>::infinity()));
+    vector<vector<int>> recG(N, vector<int>(B_max + 1, __INT_MAX__));
+    vector<vector<pair<int,int>>> prev(N, vector<pair<int,int>>(B_max + 1, {-1,-1}));
     
     // Para cada nodo origen en U
     for (int iu = 0; iu < M; ++iu) {
         int start = U[iu]; // ID real del nodo en el grafo completo
         
-        // Ejecutar Dijkstra desde este nodo hacia todos los demás
-        // El algoritmo elegirá automáticamente el camino óptimo (directo o con estaciones)
-        // según minimice distancia y recargas.
+        // Ejecutar Dijkstra lexicográfico desde start
         dijkstra_lex(start, distG, recG, prev); 
         
         // Extraer información solo para nodos en U
@@ -67,10 +68,25 @@ void evolutionaryAlgo::preprocess_paths() {
             if (iu == jv) continue; // Saltar diagonal (mismo nodo)
             
             int target = U[jv]; // ID real del nodo destino
-            double d = distG[target];
+
+            // Buscar la mejor batería al llegar a target
+            double best_dist = numeric_limits<double>::infinity();
+            int best_rec = __INT_MAX__;
+            int best_battery = -1;
+            for (int b = 0; b <= B_steps; b++) {
+                double d = distG[target][b];
+                int r = recG[target][b];
+                if (!isfinite(d)) continue;
+
+                if ( d < best_dist || (d == best_dist && r < best_rec)) {
+                    best_dist = d;
+                    best_rec = r;
+                    best_battery = b;
+                }
+            }
             
             // Si no es alcanzable, marcar como infinito
-            if (!isfinite(d)) {
+            if (!isfinite(best_dist) || best_battery == -1) {
                 W[iu][jv] = numeric_limits<double>::infinity();
                 Rcnt[iu][jv] = __INT_MAX__;
                 PathUV[iu*M + jv].clear();
@@ -78,11 +94,31 @@ void evolutionaryAlgo::preprocess_paths() {
             }
             
             // Reconstruir el camino
-            vector<int> path = reconstruct_path(start, target, prev);
-            
+            int v = target; 
+            int b = best_battery;
+            vector<int> path;
+
+            while( !(v == start && b == B_steps)) {
+                path.push_back(v);
+                auto p = prev[v][b];
+                if (p.first == -1) {
+                    // No hay camino válido
+                    path.clear();
+                    break;
+                }
+                v = p.first;
+                b = p.second;
+
+            }
+
+            if (!path.empty()) {
+                path.push_back(start);
+                reverse(path.begin(), path.end());
+            }
+
             // Guardar costo, recargas y camino completo
-            W[iu][jv] = d; 
-            Rcnt[iu][jv] = recG[target];
+            W[iu][jv] = best_dist;
+            Rcnt[iu][jv] = best_rec;
             PathUV[iu*M + jv] = path;
         }
     }
@@ -153,7 +189,7 @@ struct State {
     double dist;        ///< Distancia/costo acumulado desde el origen
     int rec;            ///< Número de recargas realizadas en el camino
     int v;              ///< Nodo actual
-    double battery;     ///< Batería residual al llegar a este nodo
+    int battery;     ///< Niveles de batería 
     
     /**
      * @brief Operador de comparación invertido para min-heap
@@ -198,74 +234,86 @@ struct State {
  * @param[out] recG recG[v] = número de recargas en el camino mínimo
  * @param[out] prev prev[v] = predecesor de v en el árbol de caminos mínimos
  */
-void evolutionaryAlgo::dijkstra_lex(int start_id, vector<double>& distG, vector<int>& recG, vector<int>& prev) {
+void evolutionaryAlgo::dijkstra_lex(int start_id, vector<vector<double>>& distG, vector<vector<int>>& recG, vector<vector<pair<int,int>>>& prev) {
     const double INF = numeric_limits<double>::infinity();
     
-    // Inicializar distancias y recargas a infinito
-    distG.assign(N, INF); 
-    recG.assign(N, __INT_MAX__);
-    prev.assign(N, -1);
-    
+
     // Batería inicial: siempre B_max (asumimos que partimos con batería completa)
-    double initial_battery = B_max;
+    int B_steps = (int)round(B_max);
+    if (B_steps <= 0) B_steps = 1; // Evitar batería cero o negativa
+
+    // Redimensionar y resetear
+    distG.assign(N, std::vector<double>(B_steps + 1, INF));
+    recG.assign(N, std::vector<int>(B_steps + 1, __INT_MAX__));
+    prev.assign(N, std::vector<std::pair<int,int>>(B_steps + 1, {-1, -1}));
     
     // Inicializar nodo origen
     priority_queue<State> pq; 
-    distG[start_id] = 0.0; 
-    recG[start_id] = 0; 
-    pq.push(State{0.0, 0, start_id, initial_battery}); 
+    distG[start_id][B_steps] = 0.0; 
+    recG[start_id][B_steps] = 0; 
+    pq.push(State{0.0, 0, start_id, B_steps}); 
     
     // Algoritmo de Dijkstra
     while (!pq.empty()) {
-        State s = pq.top(); 
+        State state = pq.top(); 
         pq.pop(); 
-        int u = s.v; 
+        int u = state.v; 
+        int b = state.battery;
         
-        // Si este estado está desactualizado, ignorarlo
-        if (s.dist > distG[u] || (s.dist == distG[u] && s.rec > recG[u])) continue; 
+        // Estado desactualizado
+        if (state.dist > distG[u][b] ||
+           (state.dist == distG[u][b] && state.rec > recG[u][b])) {
+            continue;
+        }
         
         // Explorar vecinos
         for (const auto& e : adj[u]) {
             int v = e.to; 
             
             // Calcular distancia real (sin costo de recarga) para verificar batería
-            double real_dist = dist[u][v]; // Distancia euclidiana real
+            double distance_uv = dist[u][v]; // Distancia euclidiana real
+            int db = (int)round(distance_uv); // Consumo de batería
             
-            // Calcular batería después de moverse de u a v
-            double battery_after_move = s.battery - real_dist;
-            
-            // Si no hay suficiente batería, no podemos ir directamente
-            // (a menos que v sea una estación y podamos llegar con batería >= 0)
-            if (battery_after_move < 0.0) {
-                // No podemos llegar a v desde u con la batería actual
-                // Esto no debería ocurrir si build_graph() está correcto,
-                // pero por seguridad lo verificamos
+            if (db > b) {
+                // No hay suficiente batería para llegar a v
                 continue;
             }
+
+            // Calcular batería después de moverse de u a v
+            int b_after = b - db;
             
-            // Si llegamos a una estación, recargar al 100%
-            double new_battery = (type[v] == NodeType::Station) ? B_max : battery_after_move;
             
             // Calcular nuevo costo (incluye costo de recarga si v es estación)
-            double new_dist = distG[u] + e.w; 
-            
+            double new_dist = state.dist + e.w;
             // Incrementar contador de recargas si llegamos a una estación
-            int new_rec = recG[u] + (e.isStation ? 1 : 0); 
+            int new_rec = state.rec;
+
+            int b_next; 
+            double dist_next = new_dist; 
+            int rec_next = new_rec; 
+
+            if (type[v] == NodeType::Station || v == 0) {
+                b_next = B_steps; // Recargar batería al 100%
+                dist_next += C_rec; 
+                rec_next += 1; 
+            } else {
+                b_next = b_after;
+            }
             
             // Verificar si este camino es mejor (criterio lexicográfico)
             bool better = false; 
-            if (new_dist < distG[v]) {
+            if (dist_next < distG[v][b_next]) {
                 better = true; // Mejor distancia
-            } else if (new_dist == distG[v] && new_rec < recG[v]) {
+            } else if (dist_next == distG[v][b_next] && rec_next < recG[v][b_next]) {
                 better = true; // Igual distancia pero menos recargas
             }
             
             // Si encontramos un camino mejor, actualizar
             if (better) {
-                distG[v] = new_dist; 
-                recG[v] = new_rec; 
-                prev[v] = u; 
-                pq.push(State{new_dist, new_rec, v, new_battery}); 
+                distG[v][b_next] = dist_next; 
+                recG[v][b_next] = rec_next; 
+                prev[v][b_next] = {u, b}; 
+                pq.push(State{dist_next, rec_next, v, b_next}); 
             }
         }
     }
@@ -297,10 +345,6 @@ void evolutionaryAlgo::build_types() {
     
     // Asignar tipos específicos
     type[0] = NodeType::Depot; // Nodo 0 siempre es el depósito
-    
-    for (int i = 1; i <= P; i++) {
-        type[i] = NodeType::Client; // Nodos 1..P son clientes (redundante pero explícito)
-    }
     
     for (int j = P+1; j < P+1+S; j++) {
         type[j] = NodeType::Station; // Nodos P+1..N-1 son estaciones
@@ -367,6 +411,10 @@ void evolutionaryAlgo::build_graph() {
         }
     }
 }
+
+// ============================================================================
+// SECCIÓN 2: CONSTRUCTOR Y HELPERS
+// ============================================================================
 
 /**
  * @brief Constructor: lee la instancia y preprocesa el grafo
@@ -455,10 +503,6 @@ evolutionaryAlgo::evolutionaryAlgo(const string& filename) {
     
     // Al terminar, W, Rcnt y PathUV están listos para ser usados por split
 }
-
-// ============================================================================
-// SECCIÓN 2: CONSTRUCTOR Y HELPERS
-// ============================================================================
 
 /**
  * @brief Obtiene la demanda de un cliente dado su node_id
@@ -616,7 +660,7 @@ void evolutionaryAlgo::initialize_population() {
 }
 
 // ============================================================================
-// SECCIÓN 4: FUNCIÓN SPLIT
+// SECCIÓN 4: Decodificador Split
 // ============================================================================
 
 /**
@@ -866,7 +910,7 @@ Solution evolutionaryAlgo::reconstruct_solution_from_split(const vector<int>& ch
         
         // VERIFICACIÓN SELECTIVA: Solo verificar batería cuando es claramente un problema
         // Esto detecta casos como instancia4 donde la distancia total excede B_max sin recargas
-        if (!verify_route_battery_conservative(route)) {
+        if (!verify_route_battery_exact(route)) {
             sol.is_feasible = false;
             sol.total_cost = numeric_limits<double>::infinity();
             sol.infeasibility_reason = FeasibilityReason::BatteryInsufficient;
@@ -980,10 +1024,6 @@ void evolutionaryAlgo::evaluate_population() {
             best_solution = sol;
         }
     }
-    
-    // Logging deshabilitado para reducir ruido en la salida
-    // Las estadísticas de infactibilidad están disponibles pero no se imprimen
-    // para mantener la salida limpia. Se pueden activar para debugging.
 }
 
 /**
@@ -996,10 +1036,6 @@ void evolutionaryAlgo::evaluate_population() {
  * 2. Compara sus fitness (menor es mejor)
  * 3. Selecciona el mejor como padre
  * 
- * Esto ayuda a evitar clones ya que:
- * - Siempre se seleccionan individuos diferentes en cada torneo
- * - Se favorece la diversidad al seleccionar aleatoriamente
- * - El mejor individuo tiene mayor probabilidad de ser seleccionado
  * 
  * Genera una población de padres del mismo tamaño que la población original.
  */
@@ -1446,16 +1482,7 @@ void evolutionaryAlgo::run() {
             if (!best_solution.infeasibility_details.empty()) {
                 cout << "Detalles: " << best_solution.infeasibility_details << endl;
             }
-        } else {
-            // No se encontró ninguna solución (ni factible ni infactible con información)
-            // Esto puede ocurrir si todas las soluciones tienen total_cost = infinito
-            // y no se pudo reconstruir ninguna solución
-            cout << "\nNo se pudo generar ninguna solución válida." << endl;
-            cout << "Posibles razones:" << endl;
-            cout << "  - Todos los clientes no son alcanzables desde el depósito" << endl;
-            cout << "  - No hay suficientes vehículos para atender todos los clientes" << endl;
-            cout << "  - Las restricciones de capacidad o batería son demasiado estrictas" << endl;
-        }
+        } 
     }
 }
 
@@ -1776,6 +1803,35 @@ bool evolutionaryAlgo::verify_route_battery_conservative(const Route& route) con
     // Si llegamos aquí, la ruta es factible (o al menos no claramente infactible)
     return true;
 }
+
+bool evolutionaryAlgo::verify_route_battery_exact(const Route& route) const {
+    if (route.clients.empty()) return true;
+
+    vector<int> full_path = expand_route(route);  // [D, ..., estaciones, ..., D]
+    if (full_path.size() < 2) return false;
+
+    double battery = B_max;
+
+    for (size_t i = 0; i + 1 < full_path.size(); ++i) {
+        int u = full_path[i];
+        int v = full_path[i+1];
+        double d = dist[u][v];
+
+        battery -= d ;
+        if (battery < -1e-9) {
+            // Nos quedamos sin batería antes de llegar a v
+            return false;
+        }
+
+        // Si v es estación o depósito, recargamos
+        if (type[v] == NodeType::Station || v == 0) {
+            battery = B_max;
+        }
+    }
+
+    return true;
+}
+
 
 // ============================================================================
 // SECCIÓN 8: FUNCIONES DE DEBUGGING Y VISUALIZACIÓN
