@@ -14,7 +14,7 @@
  * 6. Impresión de Solución
  */
 
-#include "GA.h"
+#include "GA.hpp"
 #include <iomanip>
 
 using namespace std;
@@ -230,9 +230,9 @@ struct State {
  * - Si start_id es estación: batería inicial = B_max (asumimos que acabamos de recargar)
  * 
  * @param start_id Nodo origen
- * @param[out] distG distG[v] = costo mínimo desde start_id hasta v
- * @param[out] recG recG[v] = número de recargas en el camino mínimo
- * @param[out] prev prev[v] = predecesor de v en el árbol de caminos mínimos
+ * @param[out] distG distG[v][B_steps] = costo mínimo desde start_id hasta v con B_steps niveles de batería restantes.
+ * @param[out] recG recG[v][B_steps] = número de recargas en el camino mínimo desde start_id
+ * @param[out] prev prev[v][B_steps] = predecesor de v en el árbol de caminos mínimos con B_steps niveles de batería restantes.
  */
 void evolutionaryAlgo::dijkstra_lex(int start_id, vector<vector<double>>& distG, vector<vector<int>>& recG, vector<vector<pair<int,int>>>& prev) {
     const double INF = numeric_limits<double>::infinity();

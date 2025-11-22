@@ -12,7 +12,7 @@
 #include <string>
 #include <chrono>
 #include <iomanip>
-#include "GA.h"
+#include "GA.hpp"
 
 using namespace std;
 using namespace std::chrono;

@@ -349,19 +349,7 @@ class evolutionaryAlgo {
          */
         void preprocess_paths();
     
-        /**
-         * @brief Dijkstra con prioridad lexicográfica: (distancia, recargas)
-         * 
-         * Encuentra caminos mínimos desde start_id a todos los demás nodos considerando:
-         * 1. Minimizar distancia/costo total
-         * 2. En empate, minimizar número de recargas
-         * 
-         * @param start_id Nodo origen
-         * @param distG[out] distG[v] = costo mínimo desde start_id a v
-         * @param recG[out] recG[v] = número de recargas en ese camino
-         * @param prev[out] prev[v] = predecesor de v en el árbol de caminos mínimos
-         */
-        void dijkstra_lex(int start_id, vector<double>& distG, vector<int>& recG, vector<int>& prev);
+        void dijkstra_lex(int start_id, vector<vector<double>>& distG, vector<vector<int>>& recG, vector<vector<pair<int,int>>>& prev);
         
         /**
          * @brief Reconstruye el camino desde start_id hasta target_id usando el vector prev
