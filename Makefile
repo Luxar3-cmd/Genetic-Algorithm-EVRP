@@ -1,5 +1,5 @@
-# Makefile para Algoritmo Genético EVRP
-# Electric Vehicle Routing Problem con representación TSP-like
+# Makefile para EVRP Solver - Versión Modular con Batería
+# Electric Vehicle Routing Problem con batería residual
 
 # Compilador y flags
 CXX = g++
@@ -11,20 +11,17 @@ SRC_DIR = .
 OBJ_DIR = obj
 BIN_DIR = bin
 
-# Archivos fuente
-SOURCES = GA.cpp main.cpp
-OBJECTS = $(SOURCES:%.cpp=$(OBJ_DIR)/%.o)
-TARGET = $(BIN_DIR)/evrp_solver
+# Módulos del sistema modular
+MODULES = Preprocess Solution Split Population Operators GA
+MODULE_OBJECTS = $(MODULES:%=$(OBJ_DIR)/%.o)
 
-# Programa para mostrar matrices
-SHOW_MATRICES_SRC = show_matrices.cpp
-SHOW_MATRICES_OBJ = $(OBJ_DIR)/show_matrices.o
-SHOW_MATRICES_TARGET = $(BIN_DIR)/show_matrices
+# Ejecutable principal
+EVRP_SOLVER = $(BIN_DIR)/evrp_solver
 
 # Regla por defecto
-all: $(TARGET) $(SHOW_MATRICES_TARGET)
+all: $(EVRP_SOLVER)
 
-# Crear directorios si no existen
+# Crear directorios
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
@@ -35,43 +32,59 @@ $(BIN_DIR):
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Enlazar ejecutable
-$(TARGET): $(OBJECTS) | $(BIN_DIR)
-	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
+# Ejecutable principal
+$(EVRP_SOLVER): $(MODULE_OBJECTS) main.cpp | $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) $(MODULE_OBJECTS) main.cpp -o $(EVRP_SOLVER) $(LDFLAGS)
 
-# Compilar objeto para show_matrices
-$(SHOW_MATRICES_OBJ): $(SHOW_MATRICES_SRC) | $(OBJ_DIR)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# Enlazar show_matrices (necesita GA.o)
-$(SHOW_MATRICES_TARGET): $(SHOW_MATRICES_OBJ) $(OBJ_DIR)/GA.o | $(BIN_DIR)
-	$(CXX) $(SHOW_MATRICES_OBJ) $(OBJ_DIR)/GA.o -o $(SHOW_MATRICES_TARGET) $(LDFLAGS)
-
-# Limpiar archivos compilados
+# Limpiar
 clean:
+	rm -f $(OBJ_DIR)/*.o $(EVRP_SOLVER)
+
+# Limpiar todo
+clean-all:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
-# Limpiar y recompilar
+# Recompilar
 rebuild: clean all
 
 # Ejecutar con instancia por defecto
-run: $(TARGET)
-	./$(TARGET) instancias/instancia6.txt
+run: $(EVRP_SOLVER)
+	./$(EVRP_SOLVER) instancias/instancia1.txt
+
+# Ejecutar con discretización gruesa (más rápido)
+run-fast: $(EVRP_SOLVER)
+	./$(EVRP_SOLVER) instancias/instancia1.txt 10
+
+# Ejecutar con población y generaciones custom
+run-long: $(EVRP_SOLVER)
+	./$(EVRP_SOLVER) instancias/instancia1.txt 1 100 200
 
 # Ayuda
 help:
-	@echo "Makefile para Algoritmo Genético EVRP"
+	@echo "Makefile - EVRP Solver Modular"
 	@echo ""
-	@echo "Comandos disponibles:"
-	@echo "  make          - Compila el proyecto"
-	@echo "  make clean    - Limpia archivos compilados"
-	@echo "  make rebuild  - Limpia y recompila"
-	@echo "  make run      - Ejecuta con instancia1.txt"
-	@echo "  make help     - Muestra esta ayuda"
+	@echo "Arquitectura modular:"
+	@echo "  - Preprocess: Preprocesamiento con W[i][j][b]"
+	@echo "  - Solution: Estructuras de datos"
+	@echo "  - Split: Decodificador con DP multidimensional"
+	@echo "  - Population: Manejo de población"
+	@echo "  - Operators: Operadores genéticos (búsqueda local)"
+	@echo "  - GA: Coordinador del algoritmo"
 	@echo ""
-	@echo "Ejecutar manualmente:"
-	@echo "  ./bin/evrp_solver <archivo_instancia>"
-	@echo "  ./bin/show_matrices <archivo_instancia>"
+	@echo "Comandos:"
+	@echo "  make              - Compila todo"
+	@echo "  make run          - Ejecuta con parámetros default"
+	@echo "  make run-fast     - Ejecuta con discretización=10"
+	@echo "  make run-long     - Ejecuta 100 pop, 200 gen"
+	@echo "  make clean        - Limpia compilados"
+	@echo "  make rebuild      - Recompila todo"
+	@echo ""
+	@echo "Uso manual:"
+	@echo "  ./bin/evrp_solver <instancia> [battery_step] [pop_size] [generations]"
+	@echo ""
+	@echo "Ejemplos:"
+	@echo "  ./bin/evrp_solver instancias/instancia1.txt"
+	@echo "  ./bin/evrp_solver instancias/instancia1.txt 1 50 100"
+	@echo "  ./bin/evrp_solver instancias/instancia1.txt 0.1 30 50"
 
-.PHONY: all clean rebuild run help
-
+.PHONY: all clean clean-all rebuild run run-fast run-long help
