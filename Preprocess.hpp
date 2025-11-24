@@ -32,7 +32,9 @@ enum class NodeType {
  * @brief Preprocesa el grafo EVRP para generar matrices W, Rcnt, PathUV
  *
  * MARCO CONCEPTUAL - W 3D con Batería Residual:
+
  * ================================================
+ 
  * W[i][j][b] = Costo mínimo para ir de U[i] a U[j] cuando se entra a U[i] con
  * batería b.
  *

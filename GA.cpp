@@ -47,9 +47,9 @@ Solution GA::run() {
 
     // Selección y reproducción (Binary Tournament)
     vector<int> parent1 =
-        Operators::tournament_selection(chromosomes, fitness, 2, rng_);
+        Operators::tournament_selection(chromosomes, fitness, rng_);
     vector<int> parent2 =
-        Operators::tournament_selection(chromosomes, fitness, 2, rng_);
+        Operators::tournament_selection(chromosomes, fitness, rng_);
 
     // Crossover
     vector<int> child1, child2;
@@ -76,14 +76,24 @@ Solution GA::run() {
     Solution sol1 = split_.decode(child1, preprocess_.get_B());
     Solution sol2 = split_.decode(child2, preprocess_.get_B());
 
-    // Reemplazar peores individuos si los hijos son mejores
-    if (sol1.is_feasible &&
-        sol1.total_cost < fitness[population.get_worst_index()]) {
-      population.replace_worst(child1, sol1);
+    // Reemplazo Incremental (Prins 2004):
+    // Seleccionar un individuo de la mitad peor y reemplazarlo si el hijo es
+    // mejor
+
+    // Para hijo 1
+    if (sol1.is_feasible) {
+      int target_idx = population.get_random_worst_half_index(rng_);
+      if (sol1.total_cost < fitness[target_idx]) {
+        population.replace_at(target_idx, child1, sol1);
+      }
     }
-    if (sol2.is_feasible &&
-        sol2.total_cost < fitness[population.get_worst_index()]) {
-      population.replace_worst(child2, sol2);
+
+    // Para hijo 2
+    if (sol2.is_feasible) {
+      int target_idx = population.get_random_worst_half_index(rng_);
+      if (sol2.total_cost < fitness[target_idx]) {
+        population.replace_at(target_idx, child2, sol2);
+      }
     }
 
     // Mostrar progreso cada 10 generaciones

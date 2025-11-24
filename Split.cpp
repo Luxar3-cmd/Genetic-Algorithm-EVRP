@@ -9,7 +9,6 @@
 
 #include "Split.hpp"
 #include <cmath>
-#include <iostream>
 #include <limits>
 #include <queue>
 
@@ -43,10 +42,10 @@ Solution Split::decode(const vector<int> &chromosome, int fleet_size) const {
       // Intentar extender ruta desde i hasta j
       for (int j = i; j < n; j++) {
         int client_id = chromosome[j];
-        load +=
-            preprocess_.get_demand()[client_id - 1]; // demand[0] = cliente 1
+        load += preprocess_.get_demand()[client_id - 1];
 
-        // Verificar capacidad
+        // Verificar capacidad, si la carga supera Q, no podemos extender la
+        // ruta.
         if (load > preprocess_.get_Q())
           break;
 
@@ -58,12 +57,8 @@ Solution Split::decode(const vector<int> &chromosome, int fleet_size) const {
 
         // Si la ruta es infactible (battery_at_end < 0)
         if (!isfinite(route_cost) || battery_at_end < 0) {
-          // break; // No podemos extender más?
-          // CUIDADO: Con la búsqueda, tal vez una ruta más larga sea factible
-          // si la corta no lo era? No, si no podemos llegar a j, no podemos
-          // llegar a j+1.
           break;
-        }
+        } // Así no se actualiza el DP
 
         // Actualizar DP
         double new_cost = V[i][b_start].cost + route_cost;
@@ -146,7 +141,7 @@ double Split::calculate_route_cost(const vector<int> &chromosome, int start,
   int best_total_recharges = 0;
   bool found_solution = false;
 
-  // Visited array para evitar ciclos o estados redundantes?
+  // Visited array para evitar ciclos o estados redundantes
   // State space: index (start..end) x battery (0..B).
   // Podemos usar una matriz de mejores costos.
   vector<vector<double>> min_cost_to(end - start + 2,

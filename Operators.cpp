@@ -5,23 +5,19 @@
 
 vector<int>
 Operators::tournament_selection(const vector<vector<int>> &population,
-                                const vector<double> &fitness,
-                                int tournament_size, mt19937 &rng) {
+                                const vector<double> &fitness, mt19937 &rng) {
 
   uniform_int_distribution<int> dist(0, population.size() - 1);
 
-  int best_idx = dist(rng);
-  double best_fitness = fitness[best_idx];
+  // Torneo Binario: Seleccionar 2 al azar y quedarse con el mejor
+  int idx1 = dist(rng);
+  int idx2 = dist(rng);
 
-  for (int i = 1; i < tournament_size; i++) {
-    int idx = dist(rng);
-    if (fitness[idx] < best_fitness) {
-      best_idx = idx;
-      best_fitness = fitness[idx];
-    }
+  if (fitness[idx1] < fitness[idx2]) {
+    return population[idx1];
+  } else {
+    return population[idx2];
   }
-
-  return population[best_idx];
 }
 
 pair<vector<int>, vector<int>>

@@ -111,8 +111,22 @@ Preprocess::Preprocess(const string &filename, int battery_step)
   }
 
   // Calcular tamaño de U y niveles de batería
-  M = P + 1;                             // Depósito + Clientes
+  M = P + 1; // Depósito + Clientes
+
+  // Validar battery_step
+  if (battery_step <= 0 || battery_step > B_max) {
+    throw invalid_argument("battery_step debe estar en (0, B_max]");
+  }
+
   B_levels = (B_max / battery_step) + 1; // Niveles discretos de batería
+
+  // Límite de seguridad para evitar Out of Memory
+  const int MAX_B_LEVELS = 10000;
+  if (B_levels > MAX_B_LEVELS) {
+    throw runtime_error("B_levels = " + to_string(B_levels) +
+                        " excede límite de " + to_string(MAX_B_LEVELS) +
+                        ". Use battery_step mayor.");
+  }
 
   // FASE 0: Calcular distancias euclidianas
   dist = calculate_distances(coords);
@@ -322,12 +336,14 @@ Preprocess::reconstruct_path(int start, int target,
 
 void Preprocess::preprocess_paths() {
   // Inicializar matrices 3D
+  // Matrices para el caso general (minimizar costo)
   W.assign(
       M, vector<vector<double>>(
              M, vector<double>(B_levels, numeric_limits<double>::infinity())));
   Rcnt.assign(M, vector<vector<int>>(M, vector<int>(B_levels, __INT_MAX__)));
   FinalBattery.assign(M, vector<vector<int>>(M, vector<int>(B_levels, -1)));
 
+  // Matrices para el caso seguro (maximizar batería)
   W_safe.assign(
       M, vector<vector<double>>(
              M, vector<double>(B_levels, numeric_limits<double>::infinity())));
@@ -343,29 +359,25 @@ void Preprocess::preprocess_paths() {
   vector<vector<double>> distG;
   vector<vector<int>> recG;
   vector<vector<pair<int, int>>> prev;
-  // Matriz temporal para guardar batería final de cada nodo en Dijkstra
-  // No necesitamos guardarla globalmente, la podemos deducir o extraer de prev,
-  // pero Dijkstra ya calcula la batería al llegar a cada nodo.
-  // Espera, Dijkstra calcula costo minimo.
-  // Necesitamos saber con qué batería llegamos al destino 'target' en el camino
-  // óptimo. El estado en Dijkstra es (dist, rec, v, battery). Pero nosotros
-  // corremos Dijkstra desde 'start' con 'b_start'. Al final miramos
-  // distG[target][b]. El 'b' que minimiza el costo es la batería con la que
-  // llegamos.
 
   // Para cada nodo origen en U y cada nivel de batería inicial
   for (int iu = 0; iu < M; iu++) {
+    // iu es el índice del nodo origen en U
     int start = U[iu];
 
     // Para cada nivel de batería inicial posible
     for (int b_start = 0; b_start < B_levels; b_start++) {
       // Ejecutar Dijkstra desde start con batería b_start
+      // dijkstra_lex calcula la matriz de distancias, recargas y previos para
+      // el origen start con batería b_start hacia todos los nodos en U
       dijkstra_lex(start, b_start, distG, recG, prev);
 
       // Para cada nodo destino en U
       for (int jv = 0; jv < M; jv++) {
+        // jv es el índice del nodo destino en U
         int target = U[jv];
         if (start == target) {
+          // Si el origen y el destino son el mismo
           W[iu][jv][b_start] = 0.0;
           Rcnt[iu][jv][b_start] = 0;
           FinalBattery[iu][jv][b_start] = b_start;
@@ -396,23 +408,29 @@ void Preprocess::preprocess_paths() {
 
           // Actualizar Min Cost
           if (d < best_dist) {
+            // Si encontramos un camino mejor
             best_dist = d;
             best_rec = r;
             best_battery = b;
           } else if (d == best_dist && r < best_rec) {
+            // Si encontramos un camino con el mismo costo pero menos recargas
             best_rec = r;
             best_battery = b;
           } else if (d == best_dist && r == best_rec && b > best_battery) {
+            // Si encontramos un camino con el mismo costo y recargas pero más
+            // batería
             best_battery = b; // Tie-break: más batería
           }
 
           // Actualizar Max Battery (Safe)
           // Priorizamos batería, pero solo si el costo no es infinito
           if (b > safe_battery) {
+            // Si encontramos un camino con más batería
             safe_battery = b;
             safe_dist = d;
             safe_rec = r;
           } else if (b == safe_battery && d < safe_dist) {
+            // Si encontramos un camino con la misma batería pero menor costo
             safe_dist = d;
             safe_rec = r;
           }
@@ -426,6 +444,7 @@ void Preprocess::preprocess_paths() {
           FinalBattery[iu][jv][b_start] = -1;
           PathUV[iu * M * B_levels + jv * B_levels + b_start].clear();
         } else {
+          // Alcanzable
           W[iu][jv][b_start] = best_dist;
           Rcnt[iu][jv][b_start] = best_rec;
           FinalBattery[iu][jv][b_start] = best_battery;
@@ -435,11 +454,13 @@ void Preprocess::preprocess_paths() {
 
         // Guardar resultados Max Battery
         if (!isfinite(safe_dist) || safe_battery == -1) {
+          // No alcanzable
           W_safe[iu][jv][b_start] = numeric_limits<double>::infinity();
           Rcnt_safe[iu][jv][b_start] = __INT_MAX__;
           FinalBattery_safe[iu][jv][b_start] = -1;
           PathUV_safe[iu * M * B_levels + jv * B_levels + b_start].clear();
         } else {
+          // Alcanzable
           W_safe[iu][jv][b_start] = safe_dist;
           Rcnt_safe[iu][jv][b_start] = safe_rec;
           FinalBattery_safe[iu][jv][b_start] = safe_battery;

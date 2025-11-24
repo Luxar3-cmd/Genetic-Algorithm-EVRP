@@ -259,9 +259,10 @@ Retornar mejor solución encontrada
 
 ### Estrategia de Reemplazo
 
-- **Tipo**: Reemplazo del peor (Steady-State)
-- **Criterio**: Solo si hijo tiene mejor fitness que el peor actual
-- **Elitismo**: Implícito (el mejor nunca se pierde)
+- **Tipo**: Reemplazo Incremental (Prins 2004)
+- **Criterio**: El hijo reemplaza a un individuo seleccionado aleatoriamente de la **mitad peor** de la población, solo si el hijo es mejor.
+- **Objetivo**: Preservar la diversidad evitando eliminar siempre al peor absoluto, lo que ayuda a escapar de óptimos locales.
+- **Elitismo**: Implícito (los mejores individuos nunca están en la mitad peor, por lo que nunca son reemplazados).
 
 ---
 
@@ -287,7 +288,6 @@ Retornar mejor solución encontrada
 | `generations` | 100 | Número de generaciones |
 | `crossover_rate` | 0.8 | Probabilidad de cruce |
 | `mutation_rate` | 0.2 | Probabilidad de mutación |
-| `tournament_size` | 2 | Fijo (torneo binario) |
 | `local_search_iters` | 10 | Iteraciones sin mejora |
 
 ### Parámetros de Discretización
@@ -306,7 +306,7 @@ Retornar mejor solución encontrada
 - `battery_step=1`: Balance, B_levels=201
 - `battery_step=10`: Rápido, B_levels=21
 
-⚠️ **Límite**: B_levels muy grande (>10,000) puede causar out of memory
+⚠️ **Límite**: B_levels está limitado a 10,000 para evitar errores de memoria. Si `battery_step` es muy pequeño y excede este límite, el programa lanzará un error.
 
 ---
 

@@ -2,7 +2,10 @@
 #include <algorithm>
 #include <numeric>
 
-Population::Population(const Preprocess &preprocess, const Split &split, int size, int fleet_size): preprocess_(preprocess), split_(split), size_(size), fleet_size_(fleet_size) {
+Population::Population(const Preprocess &preprocess, const Split &split,
+                       int size, int fleet_size)
+    : preprocess_(preprocess), split_(split), size_(size),
+      fleet_size_(fleet_size) {
   rng_.seed(std::random_device{}());
 }
 
@@ -48,6 +51,30 @@ void Population::replace_worst(const vector<int> &chromosome,
   chromosomes_[worst_idx] = chromosome;
   solutions_[worst_idx] = solution;
   fitness_[worst_idx] = solution.is_feasible ? solution.total_cost : 1e9;
+}
+
+int Population::get_random_worst_half_index(mt19937 &rng) const {
+  // Crear vector de índices
+  vector<int> indices(size_);
+  iota(indices.begin(), indices.end(), 0);
+
+  // Ordenar índices por fitness (menor costo = mejor)
+  // Queremos identificar la mitad peor (costos más altos)
+  sort(indices.begin(), indices.end(),
+       [&](int a, int b) { return fitness_[a] < fitness_[b]; });
+
+  // La mitad peor está en el rango [size/2, size-1]
+  int start_worst_half = size_ / 2;
+  uniform_int_distribution<int> dist(start_worst_half, size_ - 1);
+
+  return indices[dist(rng)];
+}
+
+void Population::replace_at(int index, const vector<int> &chromosome,
+                            const Solution &solution) {
+  chromosomes_[index] = chromosome;
+  solutions_[index] = solution;
+  fitness_[index] = solution.is_feasible ? solution.total_cost : 1e9;
 }
 
 int Population::get_best_index() const {

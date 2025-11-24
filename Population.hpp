@@ -55,6 +55,23 @@ public:
   const vector<double> &get_fitness() const { return fitness_; }
   int get_best_index() const;
   int get_worst_index() const;
+  /**
+   * @brief Obtiene el índice de un individuo aleatorio de la mitad peor de la
+   * población
+   * @param rng Generador de números aleatorios
+   * @return Índice del individuo seleccionado
+   */
+  int get_random_worst_half_index(mt19937 &rng) const;
+
+  /**
+   * @brief Reemplaza el individuo en el índice especificado
+   * @param index Índice del individuo a reemplazar
+   * @param chromosome Nuevo cromosoma
+   * @param solution Solución decodificada del nuevo cromosoma
+   */
+  void replace_at(int index, const vector<int> &chromosome,
+                  const Solution &solution);
+
   const Solution &get_best_solution() const;
 
 private:

@@ -17,11 +17,11 @@ using namespace std;
 class Operators {
 public:
   /**
-   * @brief Selección por torneo
+   * @brief Selección por torneo binario (tamaño fijo = 2)
    */
   static vector<int> tournament_selection(const vector<vector<int>> &population,
                                           const vector<double> &fitness,
-                                          int tournament_size, mt19937 &rng);
+                                          mt19937 &rng);
 
   /**
    * @brief Order Crossover (OX)
